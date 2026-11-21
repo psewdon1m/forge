@@ -577,18 +577,16 @@ async function exerciseManualRollback({ current, env, originalSettings, backup, 
 
   await window.getByRole('button', { name: 'Settings', exact: true }).click();
   let panel = window.getByRole('region', { name: 'Updates', exact: true });
-  const rollbackButton = panel.getByRole('button', { name: `Roll back to ${active.version}`, exact: true });
-  const confirmation = window.getByRole('dialog', { name: `Roll back to Forge ${active.version}?` });
-  const openConfirmation = () => rollbackButton.click();
-  const confirm = () => confirmation.getByRole('button', { name: 'Choose original ZIP and roll back', exact: true }).click();
-  await rollbackButton.press('Enter');
-  await expect(confirmation).toHaveAccessibleDescription(/replaces changes to application settings/);
-  await expect(confirmation.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused();
+  const rollbackButton = () => panel.getByRole('button', { name: `Roll back to ${active.version}`, exact: true });
+  const confirmation = () => window.getByRole('dialog', { name: `Roll back to Forge ${active.version}?` });
+  await rollbackButton().press('Enter');
+  await expect(confirmation()).toHaveAccessibleDescription(/replaces changes to application settings/);
+  await expect(confirmation().getByRole('button', { name: 'Cancel', exact: true })).toBeFocused();
   await window.keyboard.press('Escape');
-  await expect(confirmation).toHaveCount(0);
-  await expect(rollbackButton).toBeFocused();
-  await openConfirmation();
-  await confirmation.getByRole('button', { name: 'Go to project backup' }).click();
+  await expect(confirmation()).toHaveCount(0);
+  await expect(rollbackButton()).toBeFocused();
+  await rollbackButton().click();
+  await confirmation().getByRole('button', { name: 'Go to project backup' }).click();
   await expect(window.getByRole('button', { name: 'Export project', exact: true })).toBeFocused();
 
   const unrelated = path.join(run, 'project-backup-before-rollback.zip');
@@ -604,11 +602,11 @@ async function exerciseManualRollback({ current, env, originalSettings, backup, 
   assert.equal((await stat(tampered)).size, (await stat(backup)).size);
   const runPicker = async selected => {
     await openDialog(selected);
-    await openConfirmation();
-    await confirm();
+    await rollbackButton().click();
+    await confirmation().getByRole('button', { name: 'Choose original ZIP and roll back', exact: true }).click();
   };
   await runPicker(null);
-  await expect(rollbackButton).toBeFocused();
+  await expect(rollbackButton()).toBeFocused();
   for (const rejected of [unrelated, tampered]) {
     await runPicker(rejected);
     await expect(panel.getByRole('alert')).toHaveText('Choose the original ZIP saved for this update.');
