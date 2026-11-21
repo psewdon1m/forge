@@ -33,6 +33,9 @@ async function launch() {
     globalThis.editFixture = state;
     globalThis.forgeQualification.chooseDocumentEditor = async file => {
       state.selections.push(file);
+      if (state.deferChoice) {
+        return new Promise(resolve => { state.finishChoice = () => resolve(state.chooser); });
+      }
       return state.chooser;
     };
     dialog.showMessageBox = async (_owner, options) => {
@@ -113,7 +116,31 @@ try {
   await expect(editActions(page).getByRole('alert')).toContainText('Replace file.');
   assert.deepEqual(await openEditDirectories(), []);
   await enable(app, 1);
+  await app.evaluate(() => { globalThis.editFixture.deferChoice = true; });
   await startEdit().click();
+  await expect.poll(() => app.evaluate(() => typeof globalThis.editFixture.finishChoice)).toBe('function');
+  try {
+    const viewport = { x: 42, y: -17, zoom: 1.2 };
+    const updated = await page.evaluate(async ({ projectId, viewport, otherProjectId }) => {
+      const api = window.forge.project;
+      return {
+        otherProject: await api.saveViewport({ projectId: otherProjectId, viewport }),
+        close: await api.close(),
+        currentProject: await api.saveViewport({ projectId, viewport }),
+      };
+    }, { projectId: baseline.space.projectId, viewport, otherProjectId: randomUUID() });
+    assert.equal(updated.otherProject.error?.code, 'PROJECT_CHANGED');
+    assert.equal(updated.close.error?.code, 'PROJECT_BUSY');
+    assert.equal(updated.currentProject.ok, true, JSON.stringify(updated.currentProject));
+    assert.deepEqual((await projectView(page)).viewport, viewport);
+  } finally {
+    await app.evaluate(() => {
+      const state = globalThis.editFixture;
+      state.finishChoice();
+      delete state.finishChoice;
+      state.deferChoice = false;
+    });
+  }
   await expect(importEdit()).toBeVisible();
   const pdfCopy = await app.evaluate(() => globalThis.editFixture.selections.at(-1));
   assert.equal(path.basename(pdfCopy), 'document.pdf');

@@ -510,7 +510,9 @@ bridge('apply', async envelope => {
   return result;
 });
 bridge('viewport', input => {
-  if (choosingDirectory || !openedProjectId || input?.projectId !== openedProjectId) {
+  // The editor picker holds the operation lock without changing the open project.
+  if (!openedProjectId || input?.projectId !== openedProjectId ||
+      (choosingDirectory && choosingDirectory !== 'document-editor')) {
     return projectError('PROJECT_CHANGED', 'Open the project again before saving its view.');
   }
   return core.request({ kind: 'saveViewport', viewport: input.viewport });
@@ -1117,7 +1119,7 @@ bridge('open-edit-copy', async input => {
   if (edit && edit.versionId !== input.versionId) return staleEdit();
   const existing = !!edit;
   const { nodeId, versionId } = input;
-  choosingDirectory = true;
+  choosingDirectory = 'document-editor';
   try {
     const details = await core.request({ kind: 'assetDetails', nodeId, versionId });
     if (!details.ok) return details;
