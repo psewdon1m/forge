@@ -229,6 +229,13 @@ const referenceSlot = slot;
 let installedManifest = manifest;
 assert.equal(await fileDigest(path.join(slot, '.forge-install-manifest.json')), await fileDigest(signedPath));
 assert.equal(await fileDigest(path.join(slot, '.forge-install-transition.json')), await fileDigest(rotationFiles[0]));
+const bundledFontLicenses = [
+  ['@fontsource-variable/space-grotesk/LICENSE', 'notices/npm/scope-fontsource-variable/space-grotesk/LICENSE'],
+  ['@fontsource/ibm-plex-mono/LICENSE', 'notices/npm/scope-fontsource/ibm-plex-mono/LICENSE'],
+];
+for (const [upstream, packaged] of bundledFontLicenses) {
+  assert.equal(await fileDigest(path.join(slot, packaged)), await fileDigest(path.join(root, 'node_modules', upstream)), packaged);
+}
 
 async function startStageFixture() {
   const [major, minor, patch] = workspaceVersion.split('.').map(Number);
@@ -1071,6 +1078,7 @@ try {
           'resources/app/package.json', 'resources/app/dist/index.html',
           'notices/git/git2-0.21.0-Apache-2.0.txt', 'notices/git/git2-0.21.0-MIT.txt',
           'notices/git/libgit2-1.9.7-COPYING.txt', 'notices/git/libz-sys-1.1.33-zlib.txt',
+          ...bundledFontLicenses.map(([, packaged]) => packaged),
           '.forge-install-manifest.json', '.forge-install-manifest.sig',
         ];
         for (const relative of exactFiles) {
@@ -1126,6 +1134,7 @@ try {
     setupSha256: await fileDigest(bootstrap), signedManifestSha256: await fileDigest(signedPath),
     verifiedBeforeInstall: true, wrongSignaturePlatformChannelURLTagSizeAndCompatibilityRejected: true,
     packageDigestAndEmbeddedCommitRejected: true, existingInstallPreserved: true, rotationHandOffVerified: true,
+    installedFontLicenses: bundledFontLicenses.map(([, packaged]) => packaged),
     launchedExactSlotAndCreatedLocalProject: true, runtime: check.electron, offNetwork: true,
     ...(interruptedInstall ? { interruptedFirstInstall: { retriedSameSignedPackage: true, abandonedSlotRemoved: true } } : {}),
     ...discovery,

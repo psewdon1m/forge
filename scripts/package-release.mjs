@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { bootstrapName, canonical, commitFormat, fileDigest, packageName, stableVersion } from './release-format.mjs';
@@ -14,6 +14,7 @@ const output = path.resolve(outputArg);
 const readJson = async file => JSON.parse(await readFile(file, 'utf8'));
 const pkg = await readJson(path.join(root, 'package.json'));
 const lock = await readJson(path.join(root, 'package-lock.json'));
+const runtimeNpmPackages = Object.entries(lock.packages).filter(([entry, item]) => entry && !item.dev && item.version);
 const version = pkg.version;
 const electronVersion = pkg.devDependencies.electron;
 const anchor = process.env.FORGE_RELEASE_PUBLIC_KEY_HEX;
@@ -46,11 +47,27 @@ async function writeJson(file, value) {
   await writeFile(file, canonical(value), { flag: 'wx' });
 }
 
+async function copyNpmNotices() {
+  for (const [entry] of runtimeNpmPackages) {
+    const installedPackage = path.join(root, entry);
+    const files = (await readdir(installedPackage, { withFileTypes: true })).filter(file => file.isFile());
+    const licenses = files.filter(file => /^(?:licen[cs]e|copying|ofl)(?:$|[._-])/i.test(file.name));
+    if (licenses.length === 0) throw new Error('No distributable license file found in ' + entry);
+    const notices = files.filter(file => /^notice(?:$|[._-])/i.test(file.name));
+    // The native archive format does not permit @ in Windows path components.
+    const archiveParts = entry.split('/').slice(1).map(part => part.replace(/^@/, 'scope-'));
+    const destination = path.join(staging, 'notices', 'npm', ...archiveParts);
+    await mkdir(destination, { recursive: true });
+    for (const file of [...licenses, ...notices]) {
+      await cp(path.join(installedPackage, file.name), path.join(destination, file.name), { errorOnExist: true, force: false });
+    }
+  }
+}
+
 function components() {
   const result = new Map();
   const track = item => result.set(item['bom-ref'], item);
-  for (const [entry, item] of Object.entries(lock.packages)) {
-    if (!entry || item.dev || !item.version) continue;
+  for (const [entry, item] of runtimeNpmPackages) {
     const name = entry.split('node_modules/').at(-1);
     const purl = 'pkg:npm/' + (name.startsWith('@') ? '%40' + name.slice(1) : name) + '@' + item.version;
     track({ type: 'library', 'bom-ref': purl, name, version: item.version, purl });
@@ -73,6 +90,7 @@ function components() {
 try {
   await mkdir(path.join(staging, 'resources', 'bin'), { recursive: true });
   await mkdir(app);
+  await copyNpmNotices();
   for (const relative of runtimeFiles) {
     await cp(path.join(runtime, relative), path.join(staging, relative), { recursive: relative === 'locales', errorOnExist: true, force: false });
   }
