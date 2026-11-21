@@ -3,12 +3,14 @@ import { createHash } from 'node:crypto';
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { writeCargoNotices } from './cargo-notices.mjs';
 import { bootstrapName, canonical, commitFormat, fileDigest, packageName, stableVersion } from './release-format.mjs';
 
 const root = path.resolve(fileURLToPath(new URL('../', import.meta.url)));
-const [commitSha, outputArg] = process.argv.slice(2);
-if (!commitFormat.test(commitSha ?? '') || !outputArg || process.argv.length !== 4) {
-  throw new Error('Usage: node scripts/package-release.mjs COMMIT_SHA NEW_OUTPUT_DIRECTORY');
+const [commitSha, outputArg, toolchain] = process.argv.slice(2);
+if (!commitFormat.test(commitSha ?? '') || !outputArg ||
+    (toolchain !== undefined && toolchain !== '--docker') || process.argv.length > 5) {
+  throw new Error('Usage: node scripts/package-release.mjs COMMIT_SHA NEW_OUTPUT_DIRECTORY [--docker]');
 }
 const output = path.resolve(outputArg);
 const readJson = async file => JSON.parse(await readFile(file, 'utf8'));
@@ -64,7 +66,7 @@ async function copyNpmNotices() {
   }
 }
 
-function components() {
+function components(cargoNotices) {
   const result = new Map();
   const track = item => result.set(item['bom-ref'], item);
   for (const [entry, item] of runtimeNpmPackages) {
@@ -78,6 +80,7 @@ function components() {
     const purl = 'pkg:cargo/' + crate.name + '@' + crate.version;
     track({ type: members.has(crate.id) ? 'application' : 'library', 'bom-ref': purl, name: crate.name,
       version: crate.version, purl, ...(crate.license ? { licenses: [{ expression: crate.license }] } : {}),
+      ...(cargoNotices.has(crate.id) ? { properties: [{ name: 'forge:bundled-notices', value: cargoNotices.get(crate.id) }] } : {}),
     });
   }
   const purl = 'pkg:npm/electron@' + electronVersion;
@@ -90,6 +93,7 @@ function components() {
 try {
   await mkdir(path.join(staging, 'resources', 'bin'), { recursive: true });
   await mkdir(app);
+  const cargoNotices = await writeCargoNotices(rustMetadata, staging, { docker: toolchain === '--docker' });
   await copyNpmNotices();
   for (const relative of runtimeFiles) {
     await cp(path.join(runtime, relative), path.join(staging, relative), { recursive: relative === 'locales', errorOnExist: true, force: false });
@@ -117,7 +121,7 @@ try {
   await writeJson(path.join(output, 'forge-sbom.cdx.json'), {
     bomFormat: 'CycloneDX', specVersion: '1.6', version: 1,
     metadata: { component: { type: 'application', name: 'Forge', version } },
-    components: components(),
+    components: components(cargoNotices),
   });
   const files = [bundle, bootstrap, 'forge-sbom.cdx.json', 'release-notes.md'];
   const subjects = await Promise.all(files.map(async name => ({ name, digest: { sha256: await fileDigest(path.join(output, name)) } })));

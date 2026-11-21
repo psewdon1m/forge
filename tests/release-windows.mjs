@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { _electron, expect } from '@playwright/test';
 import { startUpdateChannel } from './update-channel-fixture.mjs';
+import { resolvedExternalCrates } from '../scripts/cargo-notices.mjs';
 import {
   bootstrapName, canonical, ed25519PublicHex, fileDigest, manifestDomain, manifestFor, packageName, rotationDomain, signRecord,
 } from '../scripts/release-format.mjs';
@@ -101,7 +102,7 @@ async function buildWithAnchor(anchor, { workspace = root, qualification = disco
 
 const packageAnchor = candidate ? candidatePublicKey : publicHex;
 await buildWithAnchor(packageAnchor);
-checked(process.execPath, ['scripts/package-release.mjs', testCommit, delivery], {
+checked(process.execPath, ['scripts/package-release.mjs', testCommit, delivery, ...(docker ? ['--docker'] : [])], {
   env: { ...process.env, FORGE_RELEASE_PUBLIC_KEY_HEX: packageAnchor }, stdio: 'inherit',
 });
 if (candidate) await buildWithAnchor(publicHex);
@@ -235,6 +236,17 @@ const bundledFontLicenses = [
 ];
 for (const [upstream, packaged] of bundledFontLicenses) {
   assert.equal(await fileDigest(path.join(slot, packaged)), await fileDigest(path.join(root, 'node_modules', upstream)), packaged);
+}
+const rustNoticeIndex = JSON.parse(await readFile(path.join(slot, 'notices/cargo/index.json'), 'utf8'));
+const rustMetadata = JSON.parse(await readFile(path.join(root, '.local/release-rust-metadata.json'), 'utf8'));
+assert.deepEqual(rustNoticeIndex.map(({ name, version }) => [name, version]),
+  resolvedExternalCrates(rustMetadata).map(({ name, version }) => [name, version]));
+for (const crate of rustNoticeIndex) {
+  assert.ok(crate.files.length > 0);
+  for (const notice of crate.files) {
+    assert.ok(notice.path.startsWith('notices/cargo/'));
+    assert.equal(await fileDigest(path.join(slot, notice.path)), notice.sha256, notice.path);
+  }
 }
 
 async function startStageFixture() {
@@ -1135,6 +1147,7 @@ try {
     verifiedBeforeInstall: true, wrongSignaturePlatformChannelURLTagSizeAndCompatibilityRejected: true,
     packageDigestAndEmbeddedCommitRejected: true, existingInstallPreserved: true, rotationHandOffVerified: true,
     installedFontLicenses: bundledFontLicenses.map(([, packaged]) => packaged),
+    installedCargoNotices: { crates: rustNoticeIndex.length, files: rustNoticeIndex.reduce((total, crate) => total + crate.files.length, 0) },
     launchedExactSlotAndCreatedLocalProject: true, runtime: check.electron, offNetwork: true,
     ...(interruptedInstall ? { interruptedFirstInstall: { retriedSameSignedPackage: true, abandonedSlotRemoved: true } } : {}),
     ...discovery,
