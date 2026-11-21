@@ -29,7 +29,7 @@ async function launch() {
     env: { ...process.env, FORGE_QUALIFICATION: '1', FORGE_QUALIFICATION_DATA: profile },
   });
   await app.evaluate(({ dialog, shell }, data) => {
-    const state = { confirmation: 0, chooser: 'canceled', selections: [], confirmations: [], folders: [] };
+    const state = { confirmation: 0, chooser: { outcome: 'canceled' }, selections: [], confirmations: [], folders: [] };
     globalThis.editFixture = state;
     globalThis.forgeQualification.chooseDocumentEditor = async file => {
       state.selections.push(file);
@@ -54,7 +54,8 @@ async function launch() {
 }
 
 async function enable(app, confirmation, chooser = 'chosen') {
-  await app.evaluate((_electron, data) => { Object.assign(globalThis.editFixture, data); }, { confirmation, chooser });
+  const selection = typeof chooser === 'string' ? { outcome: chooser } : chooser;
+  await app.evaluate((_electron, data) => { Object.assign(globalThis.editFixture, data); }, { confirmation, chooser: selection });
 }
 
 function editActions(page) {
@@ -102,9 +103,10 @@ try {
   await expect(editActions(page).getByText('Editor selection canceled')).toBeVisible();
   await expect.poll(() => app.evaluate(() => globalThis.editFixture.selections.length)).toBe(1);
   await expect.poll(openEditDirectories).toEqual([]);
-  await enable(app, 1, 'failed');
+  await enable(app, 1, { outcome: 'failed', windowsFailure: { operation: 'chooser', hresult: '0x80070005' } });
   await startEdit().click();
-  await expect(editActions(page).getByRole('alert')).toContainText('Windows could not open an editor.');
+  await expect(editActions(page).getByRole('alert')).toContainText('The Windows editor chooser returned 0x80070005.');
+  await expect(editActions(page).getByRole('alert')).toContainText('Replace file.');
   assert.deepEqual(await openEditDirectories(), []);
   await enable(app, 1);
   await startEdit().click();
@@ -113,6 +115,11 @@ try {
   assert.equal(path.basename(pdfCopy), 'document.pdf');
   assert.equal(path.dirname(path.dirname(pdfCopy)).toLowerCase(), profile.toLowerCase());
   assert.ok((await stat(pdfCopy)).mode & 0o200);
+  assert.deepEqual(await readFile(pdfCopy), pdfOriginal);
+  await enable(app, 1, { outcome: 'failed', windowsFailure: { operation: 'initialize', hresult: '0x80010106' } });
+  await editActions(page).getByRole('button', { name: 'Reopen in editor', exact: true }).click();
+  await expect(editActions(page).getByRole('alert')).toContainText('Windows editor selection setup returned 0x80010106.');
+  await expect(editActions(page).getByRole('alert')).toContainText('Open copy folder');
   assert.deepEqual(await readFile(pdfCopy), pdfOriginal);
 
   await enable(app, 0);

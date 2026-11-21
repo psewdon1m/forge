@@ -114,14 +114,27 @@ export class DocumentEdits {
 }
 
 export function chooseDocumentEditor(executable, owner, file) {
-  if (process.platform !== 'win32') return Promise.resolve('failed');
+  if (process.platform !== 'win32') return Promise.resolve({ outcome: 'failed' });
   const handle = owner.getNativeWindowHandle();
   const parent = handle.length === 8 ? handle.readBigUInt64LE() : handle.readUInt32LE();
   return new Promise(resolve => {
     const helper = spawn(executable, ['--open-with', String(parent), file], {
-      shell: false, windowsHide: true, stdio: 'ignore',
+      shell: false, windowsHide: true, stdio: ['ignore', 'ignore', 'pipe'],
     });
-    helper.once('error', () => resolve('failed'));
-    helper.once('close', code => resolve(code === 0 ? 'chosen' : code === 2 ? 'canceled' : 'failed'));
+    let stderr = '';
+    helper.stderr.setEncoding('utf8');
+    helper.stderr.on('data', chunk => {
+      // Accept a single bounded helper status without forwarding application paths or arbitrary stderr.
+      if (stderr.length < 64) stderr = (stderr + chunk).slice(0, 64);
+    });
+    helper.once('error', () => resolve({ outcome: 'failed' }));
+    helper.once('close', code => {
+      if (code === 0) return resolve({ outcome: 'chosen' });
+      if (code === 2) return resolve({ outcome: 'canceled' });
+      const status = code === 1 ? /^forge-open-with (initialize|chooser) (0x[0-9A-F]{8})\r?\n$/.exec(stderr) : null;
+      resolve(status
+        ? { outcome: 'failed', windowsFailure: { operation: status[1], hresult: status[2] } }
+        : { outcome: 'failed' });
+    });
   });
 }

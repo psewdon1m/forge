@@ -1133,10 +1133,18 @@ bridge('open-edit-copy', async input => {
     const file = await documentEdits.source(edit);
     const chooser = fixtureMode && globalThis.forgeQualification?.chooseDocumentEditor;
     const selection = chooser ? await chooser(file) : await chooseDocumentEditor(coreExecutable, window, file);
-    if (selection === 'chosen') return { ok: true, value: editSummary(edit, versionId) };
+    if (selection.outcome === 'chosen') return { ok: true, value: editSummary(edit, versionId) };
     if (!existing) await documentEdits.discard(edit);
-    if (selection === 'canceled') return { ok: true, value: null };
-    return projectError('EDITOR_UNAVAILABLE', 'Windows could not open an editor. Install a PDF or DOCX editor for this format and try Edit copy again.');
+    if (selection.outcome === 'canceled') return { ok: true, value: null };
+    const failure = selection.windowsFailure;
+    const detail = failure
+      ? (failure.operation === 'initialize' ? 'Windows editor selection setup' : 'The Windows editor chooser') +
+        ' returned ' + failure.hresult + '. '
+      : '';
+    const retry = existing
+      ? 'Use Open copy folder to recover your working file.'
+      : 'Try Edit copy again, or edit a downloaded copy and use Replace file.';
+    return projectError('EDITOR_UNAVAILABLE', 'Windows could not open an editor. ' + detail + retry);
   } catch {
     return projectError('EDIT_COPY_IO_ERROR', 'Forge could not prepare or open the edit copy. Check its folder and try again.');
   } finally {

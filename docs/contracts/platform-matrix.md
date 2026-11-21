@@ -5,14 +5,14 @@ Status: in progress. Target profile Windows 11 x64 and one per-user desktop appl
 | Area | Result on development host | Outstanding qualification |
 | --- | --- | --- |
 | PowerShell/Node | Node 24.14.0, npm 11.9.0, exact npm dependency lock | Repeat setup and smoke on a clean VM |
-| Electron candidate | Electron 45.4.1 and Chromium 156.0.8078.100. The HTTPS fixture proved isolated Site code, redirect into a session, persistence, a separate partition, popup interception and download interception | Verify navigation and login on representative allowed production sites. Validate allowed popup and controlled download workflows in F05 |
-| Tauri candidate | Native Rust and MSVC tools absent from the development host. Tauri prototype remains unmeasured | Run on a qualified Windows toolchain. Compare the embedded Site and canvas using the same scenarios |
-| Space input and rendering | Local development evidence passed an offscreen Electron 500‑object, 1,000‑link benchmark. Three cold starts under 0.5 s and p95 frame intervals under 17 ms | Repeat in the reference Windows VM with actual foreground rendering, pan and drag |
+| Electron candidate | Installed Forge `ac1311a` uses Electron 45.4.1 and Chromium 156.0.8078.100. Shared HTTPS fixtures confirmed Site isolation, approved sign-in and dismissed popup requests, session and sign-out across restart, HTTP redirect rejection and the 32 MiB download policy | Repeat on the reference VM. Verify navigation, sign-in and sign-out on an approved external domain with an authorized account |
+| Tauri candidate | Tauri 2.12.7 on Windows GNU with WebView2 Fixed Runtime 158 reproduced the local popup, profile and sign-out checks. The first redirect test reached the HTTP listener. Three repeats with native request interception blocked it before network access. In two earlier download runs WebView2 reported 24 bytes for a response without `Content-Length` and the prototype saved it | Qualify Windows MSVC and the embedded API, account for the missing-length discrepancy, and repeat with the approved external account |
+| Space input and rendering | The installed Electron candidate opened the foreground 500-object, 1,000-link project in 200.4–301.9 ms in three development-host runs with 4 CPU and 16 GiB limits. The p95 frame interval was 16.9 ms | Repeat setup, verify and foreground Space input on the reference VM |
 | UI profile | Project / Space / Portal in a light monochrome desktop prototype | Confirm responsive and keyboard matrix, record the Part 00 visual variation |
 | Rust Core | Rust 1.94.1 / SQLite in digest-pinned Linux tooling, 4 local persistence tests | Native Windows tests, multi-window/close lifecycle and UI round trip |
 | Release trust | Repository identity and public read access verified | Write access, protected environment, signing trust and qualified release checks |
 
-The hidden-window frame result collected before enabling offscreen rendering was discarded for performance acceptance. It measured Chromium's hidden-window throttling. Neither local measurement represents a clean Windows VM or a released installer.
+The hidden-window frame result measured Chromium's hidden-window throttling and was discarded. The foreground result covers the installed local candidate on the development host.
 
 The development host reports Windows Sandbox and the full Hyper-V role disabled. The running compute service for WSL/Docker does not provide a clean desktop Windows VM. A reference Windows VM is still required for the comparative run.
 

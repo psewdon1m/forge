@@ -43,7 +43,9 @@ pub fn run() -> i32 {
     let flags = (COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE) as u32;
     // The synchronous Shell dialog uses this thread's COM apartment and borrows the UTF-16 path.
     let hr = unsafe {
-        if CoInitializeEx(null(), flags) < 0 {
+        let initialized = CoInitializeEx(null(), flags);
+        if initialized < 0 {
+            eprintln!("forge-open-with initialize 0x{:08X}", initialized as u32);
             return 1;
         }
         let hr = SHOpenWithDialog(parent as HWND, &options);
@@ -54,6 +56,9 @@ pub fn run() -> i32 {
     match hr {
         0 => 0,
         E_ABORT | ERROR_CANCELLED_HRESULT => 2,
-        _ => 1,
+        _ => {
+            eprintln!("forge-open-with chooser 0x{:08X}", hr as u32);
+            1
+        }
     }
 }
