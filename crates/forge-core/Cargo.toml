@@ -1,0 +1,30 @@
+[package]
+name = "forge-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+cap-fs-ext = "=4.0.3"
+cap-std = "=4.0.3"
+git2 = { version = "=0.21.0", default-features = false, features = ["vendored-libgit2"] }
+image = { version = "=0.25.10", default-features = false, features = ["jpeg", "png", "webp"] }
+kamadak-exif = "=0.6.2"
+lopdf = { version = "=0.47.0", default-features = false }
+moxcms = "=0.8.1"
+png = "=0.18.1"
+quick-xml = "=0.42.0"
+rusqlite = { version = "=0.43.0", default-features = false, features = ["bundled"] }
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.149"
+sha2 = "=0.10.9"
+url = "=2.5.8"
+uuid = { version = "=1.23.0", features = ["v4", "serde"] }
+zip = { version = "=9.8.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", features = ["Win32_Security", "Win32_Storage_FileSystem", "Win32_System_Com", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_UI_Shell"] }
+
+[target.'cfg(unix)'.dependencies]
+libc = "=0.2.191"

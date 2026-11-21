@@ -1,0 +1,116 @@
+name: Verify Forge
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-desktop:
+    runs-on: windows-2025
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24.14.0'
+          package-manager-cache: false
+      - name: Install locked dependencies
+        run: ./scripts/setup.ps1
+      - name: Verify and build the Rust workspace
+        run: |
+          cargo fmt --all --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked --workspace
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo clippy --locked --workspace --all-targets -- -D warnings
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo build --locked --release -p forge-core
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Path '.local/bin' -Force | Out-Null
+          Copy-Item -LiteralPath 'target/release/forge-core.exe' -Destination '.local/bin/forge-core.exe'
+      - name: Verify desktop
+        run: ./scripts/verify.ps1 -Suite All
+      - name: Verify project restart
+        run: node tests/project-desktop.mjs
+      - name: Verify Checklist groups, completion, keyboard reorder and text output
+        run: node tests/checklist-desktop.mjs
+      - name: Verify Dataset import, typed editing, pagination and safe export
+        run: node tests/dataset-desktop.mjs
+      - name: Verify Scheme editing, portable JSON and Data Links
+        run: node tests/scheme-desktop.mjs
+      - name: Verify Site navigation, profile separation, downloads and saved references
+        run: node tests/site-desktop.mjs
+      - name: Verify Research captures, citations and project restore
+        run: node tests/research-desktop.mjs
+      - name: Verify Research transcription approval, cancellation and restore
+        run: node tests/research-transcription-desktop.mjs
+      - name: Verify Intelligent context approval, provider boundaries and restore
+        run: node tests/intelligent-desktop.mjs
+      - name: Verify paired Plains, narrow window state and native Site bounds
+        run: node tests/plain-panes-desktop.mjs
+      - name: Verify shooting project and restore its versioned analysis history
+        run: node tests/shooting-project-windows.mjs
+      - name: Verify project export and restore in a clean desktop profile
+        run: node tests/backup-desktop.mjs
+      - name: Verify application settings export and restore across desktop profiles
+        run: node tests/settings-backup-desktop.mjs
+      - name: Verify retained diagnostics, pagination and export
+        run: node tests/logs-desktop.mjs
+      - name: Verify asset import, file actions and text editing
+        run: node tests/asset-desktop.mjs
+      - name: Verify full-size image and document opening
+        run: node tests/asset-open-desktop.mjs
+      - name: Verify document edit copies and conflict recovery
+        run: node tests/document-edit-desktop.mjs
+      - name: Verify Directory on the Windows filesystem
+        run: node tests/directory-core-windows.mjs
+      - name: Verify Directory from Space
+        run: node tests/directory-desktop.mjs
+      - name: Verify Directory Data Links and external edits
+        run: node tests/directory-source-desktop.mjs
+      - name: Verify Gallery and Data Links on Windows
+        run: node tests/gallery-links-desktop.mjs
+      - name: Verify Gallery video, posters, Palette filtering and restore
+        run: node tests/gallery-video-desktop.mjs
+      - name: Verify Palette, result history and cancellation
+        run: node tests/palette-desktop.mjs
+      - name: Verify Palette PNG color normalization
+        run: node tests/palette-png-windows.mjs
+      - name: Verify Metadata, exact source versions and EXIF visibility
+        run: node tests/metadata-desktop.mjs
+      - name: Verify Comparison, source versions and history
+        run: node tests/comparison-desktop.mjs
+      - name: Verify Comparison document text, pixel differences and restore
+        run: node tests/comparison-formats-desktop.mjs
+      - name: Verify Editor graph, preview cancellation, export and restore
+        run: node tests/editor-desktop.mjs
+      - name: Verify Git review, commits, safe checkout and restored cards
+        run: node tests/git-desktop.mjs
+      - name: Verify recovery after an interrupted import
+        run: node tests/asset-crash-windows.mjs
+      - name: Verify import progress and cancellation
+        run: node tests/import-progress-desktop.mjs
+      - name: Verify immutable Part 12 catalog
+        run: node scripts/release-policy.mjs catalog
+      - name: Verify exact candidate as first install and update target over isolated HTTPS
+        run: node tests/release-windows.mjs --updates --candidate-target --manual-rollback
+      - name: Verify manual rollback after interruption on both sides of the settings commit
+        run: node tests/release-windows.mjs --updates --manual-rollback --rollback-crashes
+      - name: Verify readiness budget during activation and manual rollback
+        run: node tests/release-windows.mjs --updates --manual-rollback --slow-readiness
+      - name: Verify automatic recovery from an unhealthy candidate and interrupted launcher
+        run: |
+          node tests/release-windows.mjs --updates --failed-startup
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node tests/release-windows.mjs --updates --interrupted-startup

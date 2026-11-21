@@ -1,0 +1,19 @@
+# Preparing a Stable update
+
+After **Check for updates**, **Install** presents the exact verified version. **Save backup and install** opens the system ZIP Save dialog. Canceling the dialog exits before the helper starts an update job. Choose a new file. An existing destination is preserved and the job fails before downloading the package.
+
+The renderer selects a version and package SHA-256 from the current check. The desktop main process matches the selection to its verified result and obtains a path from the native picker. It passes the selection and path to the helper on standard input. The helper authenticates its installed slot, obtains `installation.lock` and freshly verifies the latest eligible manifest. Preparation requires the same newer version and package digest, compatible schema, helper and Windows versions, and the signed `no-migration-v1` policy.
+
+If the fresh check fails, the helper returns a bounded `rejection` with the reason and, for HTTP failures, the status and approved host. Settings shows the reason and a Logs reference. It clears the previous selection. The helper leaves the existing job unchanged and creates no new journal, backup or package request. Check for updates again before making another selection.
+
+The helper initializes a scoped [update backup](update-backup-v1.md) for settings. This policy preserves project data and settings schemas, so the project scope is empty. The helper holds the settings transaction during backup and staging. It publishes and verifies the user-selected ZIP before requesting the signed package. It rechecks the archived bytes and the 15-minute receipt before extraction and before accepting the staged slot.
+
+The download uses the exact HTTPS package URL from the signed manifest and the same redirect policy as discovery. It streams into a temporary file on the installation volume, enforces the signed byte count and verifies SHA-256 before extraction. The package is extracted and checked in a staging directory. The helper publishes the validated slot with its signed metadata and clears the download file. The running app and the active pointer remain available during preparation. The desktop hands a prepared job to the [launcher](update-activation-v1.md).
+
+The helper shares a five-minute deadline across redirects, transient HTTP retries and body transfer. It starts writing the package after a successful response, then verifies its signed size and digest. On an unsuccessful HTTP response, the journal and Updates summary retain the status and approved host name. The Logs event records the download stage and uses the job UUID as its reference. Download URLs and their query parameters stay out of the journal and Logs.
+
+`Installation/update-job.json` records the job UUID, original slot, target version and SHA-256, phase, backup receipt and staged slot. Only one job can write it at a time. Updates use an atomic file replacement. The journal can show preparing, backup saved, downloading, verifying, staged or failed. If the writer is gone and the recorded phase was in progress, Settings reports an interruption. The UI receives a bounded summary with safe status text. The user's backup path stays out of the journal.
+
+`node tests/release-windows.mjs --updates` exercises native ZIP preparation, picker cancellation, a superseded selection, an occupied filename, concurrent preparation, helper interruption during download, a changed download and successful retry on a test-signed managed Windows installation. The signed successor fixture carries the next app version and reuses the native binaries.
+
+Use `--candidate-target --manual-rollback` for the exact candidate. This path exercises 503 and 502 before a successful package transfer, a Retry-After wait larger than the deadline and repeated 503 responses. It checks that an exhausted retry leaves the previous version active and removes the temporary file.

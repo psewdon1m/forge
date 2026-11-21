@@ -1,0 +1,33 @@
+[package]
+name = "forge-update-helper"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+qualification-discovery = []
+
+[[bin]]
+name = "forge-update-helper"
+path = "src/main.rs"
+
+[[bin]]
+name = "forge-launcher"
+path = "src/launcher.rs"
+
+[dependencies]
+ed25519-dalek = { version = "=2.2.0", default-features = false, features = ["std", "fast"] }
+forge-core = { path = "../forge-core" }
+httpdate = "=1.0.3"
+semver = "=1.0.27"
+serde = { version = "=1.0.228", features = ["derive"] }
+serde_json = "=1.0.149"
+sha2 = "=0.10.9"
+ureq = { version = "=3.5.2", default-features = false, features = ["rustls"] }
+url = "=2.5.8"
+uuid = { version = "=1.23.0", features = ["v4", "serde"] }
+zip = { version = "=9.8.1", default-features = false, features = ["deflate-flate2-zlib-rs"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", features = ["Win32_Storage_FileSystem", "Win32_System_SystemInformation", "Win32_System_Threading"] }

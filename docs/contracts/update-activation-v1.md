@@ -1,0 +1,31 @@
+# Activating a prepared Forge release
+
+**Settings → Updates → Install** confirms the exact signed version and requests a destination for the backup ZIP. After successful [preparation](update-staging-v1.md), Forge asks its installed launcher to restart. If the desktop closed after preparation, **Continue installation** uses the original ZIP to resume the prepared job.
+
+The launcher serializes activation with `installation.lock`. It rechecks the saved ZIP digest and scope, the 15-minute receipt, the settings revision and the active slot. It opens a Windows handle to the exact running Forge executable before acknowledging the restart. The desktop then closes normally. The launcher waits up to 30 seconds for that process to exit before starting the candidate. If it is still running when the deadline expires, the job remains prepared and the active version is retained. [Windows process image and handle verification](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-queryfullprocessimagenamew) · [Wait semantics](https://learn.microsoft.com/en-us/windows/win32/api/synchapi/nf-synchapi-waitforsingleobject).
+
+The launcher starts the candidate in a hidden window and keeps the settings write lock. The candidate renders the actual desktop UI, opens a temporary schema-1 model from the launcher's Forge Core and runs SQLite `integrity_check`. The app blocks its project and settings bridge while startup is pending. The child publishes the job UUID, exact version, actual PID and a one-time challenge in a bounded marker inside the private temporary project directory. The launcher has up to 60 seconds to receive the matching proof from the process it started. The launcher and desktop exchange approval and acknowledgment in the same directory. A desktop that loses its supervisor before approval exits. The challenge, test model and local backup path stay outside the durable job record.
+
+| Journal phase | On disk and at restart |
+| --- | --- |
+| `staged` | The verified candidate is inactive and the saved ZIP can resume preparation while the receipt is current. Ordinary launch opens the active version. |
+| `starting` | The previous slot is active while Forge checks the candidate. An interrupted activation returns to the previous slot on the next launcher run. |
+| `committing` | The candidate passed its probe. The launcher has started the atomic active pointer change. The next launch reconciles a pending change by returning to the previous slot. |
+| `healthy` | The active pointer names the candidate. The launcher releases the settings lock and sends approval to the hidden desktop to continue using the profile. |
+| `rollingBack` | The launcher switches the pointer to the previous verified slot if necessary and runs the same health check there. |
+| `rolledBack` | The previous desktop passed the check and becomes available. Settings shows the original startup failure and actual version. |
+| `recoveryRequired` | Startup and recovery both failed. The launcher stops and the journal records both causes for the operator. |
+
+The previous slot is retained. The supported `no-migration-v1` update changes application binaries while preserving the settings and project schemas. The startup check uses a synthetic project in a temporary installation subdirectory. During automatic recovery under this policy, the original settings and project contents are already in place. A layout that mutates user data requires a separate, qualified migration and recovery contract.
+
+Run `node tests/release-windows.mjs --updates` to exercise activation on Windows. Run the same command with `--failed-startup` for a signed successor that exits before its health proof and with `--interrupted-startup` for a stopped launcher during the candidate probe. Add `--docker` with the cross-build development toolchain. The test successor uses the same native binaries with the next version identity in the desktop package.
+
+## Manual rollback
+
+The last healthy job can offer rollback while the installed slot is that job's signed candidate and the previous slot still passes local verification. Settings confirms the previous version, explains that archived preferences replace later settings changes and offers project export separately. The native picker supplies the ZIP path. The launcher matches the exact saved archive digest, size, scope, snapshot revision, source and target versions, artifact digest and job identifier. Rollback can use this ZIP after the 15-minute installation receipt expires.
+
+The launcher locks the installation and opens a write transaction on the current settings revision. It waits for the active process to close and records `manualStarting`. The prior executable runs the same startup checks behind the IPC barrier. Its failure releases the settings transaction and reopens the newer slot with its current preferences. After verified startup, `manualCommitting` records the input settings revision. SQLite commits the restored preferences, the new settings revision and a receipt for this job in a single transaction. The launcher publishes the previous slot, records `manualRolledBack` and allows the verified process to open its window. [SQLite atomic commit](https://sqlite.org/atomiccommit.html).
+
+After a launcher interruption, the revision and transactional receipt determine which slot can open. A pending job with the original settings revision and no matching receipt reopens the newer slot. A receipt for the exact job at the expected next revision completes the previous-slot switch. Conflicting journal, slot or database identities stop at `recoveryRequired`. The settings recovery receipt is operational data. It carries only the job UUID and revision and is outside the logical backup scope.
+
+`node tests/release-windows.mjs --updates --manual-rollback` exercises the signed A → B → A path, picker cancellation, rejection of an unrelated and changed ZIP, separate project export and recovery after a failed prior-slot startup. With `--rollback-crashes`, the qualification launcher exits just before and just after the settings commit. The test verifies both outcomes through a fresh launcher process. The packaged release launcher omits these test checkpoints.

@@ -1,0 +1,267 @@
+name: Prepare signed Forge release
+
+on:
+  push:
+    tags: ['forge-v*']
+  workflow_dispatch:
+    inputs:
+      candidate_run_id:
+        description: Earlier successful run for this exact qualified tag
+        required: true
+        type: string
+      review_run_id:
+        description: Run containing the independently reviewed Part 12 report artifact
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  candidate:
+    if: github.event_name == 'push'
+    runs-on: windows-2025
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24.14.0'
+          package-manager-cache: false
+      - name: Confirm tag, committed version and main
+        run: node scripts/qualified-release-ref.mjs
+      - name: Verify locked source and pinned policies
+        run: |
+          ./scripts/setup.ps1
+          node scripts/release-policy.mjs catalog
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked --workspace
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo build --locked --release -p forge-core
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Path '.local/bin' -Force | Out-Null
+          Copy-Item -LiteralPath 'target/release/forge-core.exe' -Destination '.local/bin/forge-core.exe'
+          ./scripts/verify.ps1 -Suite All
+      - name: Build the candidate once and install those ZIP bytes with an ephemeral test launcher
+        env:
+          FORGE_RELEASE_PUBLIC_KEY_HEX: ${{ vars.FORGE_RELEASE_PUBLIC_KEY_HEX }}
+          FORGE_DELIVERY_OUTPUT: ${{ runner.temp }}/forge-qualified-delivery
+        run: ./scripts/package.ps1 -Channel candidate
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: forge-qualified-delivery
+          path: ${{ runner.temp }}/forge-qualified-delivery/
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+  pre-signing:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      tag: ${{ steps.binding.outputs.tag }}
+      candidate-id: ${{ steps.binding.outputs.candidate_id }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24.14.0'
+          package-manager-cache: false
+      - name: Bind immutable runs to this checkout and release tag
+        id: binding
+        env:
+          CANDIDATE_ID: ${{ inputs.candidate_run_id }}
+          REVIEW_ID: ${{ inputs.review_run_id }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$CANDIDATE_ID" =~ ^[0-9]{1,20}$ && "$REVIEW_ID" =~ ^[0-9]{1,20}$ ]]
+          [[ "$GITHUB_REPOSITORY" = "psewdon1m/forge" ]]
+          node scripts/qualified-release-ref.mjs > qualified.json
+          candidate_commit="$(jq -r .commit qualified.json)"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$CANDIDATE_ID" |
+            node scripts/release-policy.mjs run candidate "$candidate_commit" "$CANDIDATE_ID"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$REVIEW_ID" |
+            node scripts/release-policy.mjs run review "$candidate_commit" "$REVIEW_ID"
+          gh api -X GET "repos/$GITHUB_REPOSITORY/actions/workflows/verify.yml/runs" \
+            -f head_sha="$candidate_commit" -f branch=main -f event=push -f status=success | jq -e --arg commit "$candidate_commit" '
+              any(.workflow_runs[]; .head_sha == $commit and .head_branch == "main" and .conclusion == "success")' > /dev/null
+          echo "candidate_id=$CANDIDATE_ID" >> "$GITHUB_OUTPUT"
+          echo "tag=$(jq -r .tag qualified.json)" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.binding.outputs.candidate_id }}
+          name: forge-qualified-delivery
+          path: candidate/
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.review_run_id }}
+          name: forge-known-problems-review
+          path: review/
+      - name: Gate exact files, runtime smoke, evidence and pinned policy
+        env:
+          CANDIDATE_ID: ${{ steps.binding.outputs.candidate_id }}
+          FORGE_RELEASE_PUBLIC_KEY_HEX: ${{ vars.FORGE_RELEASE_PUBLIC_KEY_HEX }}
+        run: |
+          node scripts/approve-release.mjs candidate review/known-problems-report.json approval \
+            "$(jq -r .version qualified.json)" "$(jq -r .commit qualified.json)" "$CANDIDATE_ID"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: forge-release-approval
+          path: approval/
+          if-no-files-found: error
+
+  sign:
+    needs: pre-signing
+    runs-on: ubuntu-24.04
+    environment: forge-release-signing
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24.14.0'
+          package-manager-cache: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ needs.pre-signing.outputs.candidate-id }}
+          name: forge-qualified-delivery
+          path: candidate/
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: forge-release-approval
+          path: approval/
+      - name: Sign the approved exact manifest without checking out repository code
+        env:
+          FORGE_RELEASE_SIGNING_KEY: ${{ secrets.FORGE_RELEASE_SIGNING_KEY }}
+          FORGE_RELEASE_PUBLIC_KEY_HEX: ${{ vars.FORGE_RELEASE_PUBLIC_KEY_HEX }}
+          APPROVED_TAG: ${{ needs.pre-signing.outputs.tag }}
+          APPROVED_RUN: ${{ needs.pre-signing.outputs.candidate-id }}
+        run: |
+          set -euo pipefail
+          read -r -d '' signer <<'JS' || true
+          import { createHash, createPrivateKey, createPublicKey, sign, verify } from 'node:crypto';
+          import { createReadStream, readFileSync } from 'node:fs';
+          import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
+          const digest = async file => {
+            const hash = createHash('sha256');
+            for await (const block of createReadStream(file)) hash.update(block);
+            return hash.digest('hex');
+          };
+          const review = JSON.parse(await readFile('approval/approval.json', 'utf8'));
+          const tag = process.env.APPROVED_TAG;
+          if (!/^forge-v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)$/.test(tag) || review.tag !== tag ||
+              process.env.GITHUB_REF !== 'refs/tags/' + tag || review.runId !== process.env.APPROVED_RUN) throw new Error('Approval ref mismatch');
+          const root = 'https://api.github.com/repos/psewdon1m/forge';
+          const github = async path => {
+            const response = await fetch(root + path, { redirect: 'error', signal: AbortSignal.timeout(20_000) });
+            if (!response.ok) throw new Error('Qualified remote ref could not be verified after approval');
+            return response.json();
+          };
+          const [main, tagged] = await Promise.all([github('/git/ref/heads/main'), github('/commits/' + tag)]);
+          if (main.object.sha !== review.commitSha || tagged.sha !== review.commitSha) throw new Error('Remote main or the tag changed after pre-signing');
+          const version = tag.slice(7);
+          const files = [
+            'forge-' + version + '-windows-x64.zip', 'Forge-Setup-' + version + '.exe',
+            'forge-sbom.cdx.json', 'release-notes.md', 'forge-build-provenance.json',
+          ];
+          for (const file of files) {
+            if (await digest('candidate/' + file) !== review.checksums[file]) throw new Error('Approved release file changed: ' + file);
+          }
+          const fixed = {
+            'candidate/forge-release.unsigned.json': review.manifestSha256,
+            'candidate/forge-package-smoke.json': review.smokeSha256,
+            'approval/known-problems-report.json': review.reportSha256,
+          };
+          for (const [file, expected] of Object.entries(fixed)) {
+            if (await digest(file) !== expected) throw new Error('Approved evidence or manifest changed');
+          }
+          let key;
+          const signingPem = readFileSync(0);
+          try {
+            key = createPrivateKey(signingPem);
+          } catch {
+            throw new Error('Protected Ed25519 signing key is unavailable');
+          } finally {
+            signingPem.fill(0);
+          }
+          const publicKey = createPublicKey(key);
+          const jwk = publicKey.export({ format: 'jwk' });
+          const rawKey = Buffer.from(jwk.x ?? '', 'base64url');
+          if (jwk.crv !== 'Ed25519' || rawKey.toString('hex') !== process.env.FORGE_RELEASE_PUBLIC_KEY_HEX ||
+              createHash('sha256').update(rawKey).digest('hex') !== review.publicKeySha256) throw new Error('Signing key differs from the embedded anchor');
+          const manifest = await readFile('candidate/forge-release.unsigned.json');
+          const body = Buffer.concat([Buffer.from('forge.release.v1\0', 'ascii'), manifest]);
+          const signature = sign(null, body, key);
+          if (signature.length !== 64 || !verify(null, body, publicKey, signature)) throw new Error('Detached signature verification failed');
+          await mkdir('signed');
+          for (const file of [...files, 'forge-package-smoke.json']) await copyFile('candidate/' + file, 'signed/' + file);
+          await copyFile('approval/known-problems-report.json', 'signed/known-problems-report.json');
+          await writeFile('signed/forge-release.json', manifest, { flag: 'wx' });
+          await writeFile('signed/forge-release.sig', signature, { flag: 'wx' });
+          const finalFiles = [...files, 'forge-package-smoke.json', 'known-problems-report.json', 'forge-release.json', 'forge-release.sig'];
+          const sums = await Promise.all(finalFiles.map(async file => (await digest('signed/' + file)) + '  ' + file + '\n'));
+          await writeFile('signed/SHA256SUMS', sums.join(''), { flag: 'wx' });
+          JS
+          printf '%s' "$FORGE_RELEASE_SIGNING_KEY" | env -u FORGE_RELEASE_SIGNING_KEY node --input-type=module -e "$signer"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: forge-signed-candidate
+          path: signed/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30
+
+  verify-signed:
+    needs: [pre-signing, sign]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24.14.0'
+          package-manager-cache: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: forge-signed-candidate
+          path: signed/
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: forge-release-approval
+          path: approval/
+      - name: Independently verify the signed bytes, trust anchor and Part 12 report
+        env:
+          FORGE_RELEASE_PUBLIC_KEY_HEX: ${{ vars.FORGE_RELEASE_PUBLIC_KEY_HEX }}
+        run: node scripts/verify-signed-release.mjs signed approval/approval.json signed-review
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: forge-signed-release-review
+          path: signed-review/
+          if-no-files-found: error
+          retention-days: 90
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: forge-staged-signed-delivery
+          path: signed/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30

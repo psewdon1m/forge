@@ -1,0 +1,9 @@
+[workspace]
+members = ["crates/forge-core", "crates/forge-update-helper"]
+resolver = "3"
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.94"
+publish = false

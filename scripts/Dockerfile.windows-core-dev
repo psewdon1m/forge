@@ -1,0 +1,10 @@
+# Local cross-compiler used only to qualify the Windows Core executable.
+FROM docker.io/library/rust@sha256:6ae102bdbf528294bc79ad6e1fae682f6f7c2a6e6621506ba959f9685b308a55
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends gcc-mingw-w64-x86-64-posix \
+    && rm -rf /var/lib/apt/lists/* \
+    && rustup target add --toolchain 1.94.1 x86_64-pc-windows-gnu \
+    && rustup component add --toolchain 1.94.1 clippy rustfmt
+ENV CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc-posix \
+    CC_x86_64_pc_windows_gnu=x86_64-w64-mingw32-gcc-posix
+WORKDIR /forge

@@ -1,0 +1,89 @@
+name: Promote qualified Forge release to Stable
+
+on:
+  workflow_dispatch:
+    inputs:
+      signed_run_id:
+        description: Successful signing and independent verification run for this tag
+        required: true
+        type: string
+      report:
+        description: Completed Part 12 JSON with public evidence references only
+        required: true
+        type: string
+      windows_qualification:
+        description: Clean Windows acceptance JSON with public evidence references only
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: forge-stable-release
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      attestations: read
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24.14.0'
+          package-manager-cache: false
+      - name: Bind the successful signing run to the qualified ref
+        env:
+          SIGNED_RUN_ID: ${{ inputs.signed_run_id }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REPOSITORY" = "psewdon1m/forge" && "$SIGNED_RUN_ID" =~ ^[1-9][0-9]{0,19}$ ]]
+          node scripts/qualified-release-ref.mjs > qualified.json
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$SIGNED_RUN_ID" |
+            node scripts/release-policy.mjs run signed "$(jq -r .commit qualified.json)" "$SIGNED_RUN_ID"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.signed_run_id }}
+          name: forge-signed-release-review
+          path: signed-review/
+      - name: Verify the public immutable prerelease, attestation and Windows evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/verify-release-promotion.mjs qualify qualified.json signed-review promotion-approval
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: forge-stable-qualification
+          path: promotion-approval/
+          if-no-files-found: error
+          retention-days: 90
+
+  promote:
+    needs: qualify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24.14.0'
+          package-manager-cache: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: forge-stable-qualification
+          path: promotion-approval/
+      - name: Promote only the approved immutable release and confirm public Stable
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/verify-release-promotion.mjs promote promotion-approval
