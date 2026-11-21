@@ -76,6 +76,10 @@ const originalPath = asset => path.join(directory, 'assets', 'asset-' + asset.ve
 let app = await launch();
 try {
   let page = await app.firstWindow();
+  await page.getByRole('button', { name: 'Documentation', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Edit PDF and DOCX copies' })).toBeVisible();
+  await expect(page.getByText(/Save in the original format, then use Import changes/)).toBeVisible();
+  await expect(page.getByText(/If Windows cannot open an editor, download the file, edit it separately and use Replace file/)).toContainText('Open copy folder');
   await page.getByRole('button', { name: 'Projects', exact: true }).click();
   await page.getByLabel('Project name').fill('Document edit fixture');
   await page.getByRole('button', { name: 'Create project' }).click();

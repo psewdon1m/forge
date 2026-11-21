@@ -56,8 +56,10 @@ PNG, JPEG and WebP open in the File view with **Fit image** and **Actual size**.
 | --- | --- | --- |
 | PNG, JPEG, WebP | Forge File view with original dimensions. | Replace with a validated file of the same format. |
 | TXT, Markdown | Forge text preview and Windows default handler for Open. | Forge text editor up to 256 KiB. |
-| PDF | Windows default PDF handler. Native dispatch checked on the development host. Rendering in that viewer remains to be qualified. | Edit copy and import through the Windows editor chooser. A real installed editor round trip remains to be qualified. |
-| DOCX | Windows default DOCX handler when installed. | Edit copy and import through the Windows editor chooser. A real installed editor round trip remains to be qualified. |
+| PDF | Registered Windows PDF handler. | Edit copy and import. The editor matrix records the tested Draw workflow and the remaining chooser checks. |
+| DOCX | Registered Windows DOCX handler. The editor matrix records the tested WordPad behavior. | Edit copy and import. The editor matrix records the tested Writer workflow and the remaining chooser checks. |
+
+[Document editor matrix](document-editor-matrix.md)
 
 ## Replace
 
@@ -74,6 +76,8 @@ Core checks the current project revision, card and registered version before wri
 ## Edit PDF or DOCX copy
 
 **Edit copy** confirms the operation before Core exports verified content to a writable file under Forge app data. Windows **Open with** asks the user to select an installed editor. Choose a program that saves the document in its original format. Forge retains the workspace and source file independently of the Windows editor.
+
+If the chooser fails during a new edit, Forge removes the unused working copy and keeps the selected version. Download the file, edit it in the same format and choose **Replace file** to import the result. If reopening an existing working copy fails, choose **Open copy folder** to recover the file. Forge shows the Windows error code when the chooser reports one.
 
 Save and close the file in the external editor, then select **Import changes** and confirm. Core checks the expected project revision and original file version, verifies the original's digest, and applies the same size, format and content checks used for import. Unchanged bytes and invalid edits leave the revision intact. Success publishes one new version with the same Asset ID, card ID and original filename.
 

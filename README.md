@@ -21,7 +21,7 @@ Open a card and use **Open beside** to add another working panel. Both panels ar
 
 Use **Import files** or drop files onto an open Space to add PNG, JPEG, WebP, WebM, MP4, TXT, Markdown, PDF, DOCX or PCM WAV. Check the per-file report and open a committed card to inspect its type, size and SHA-256. Run `node tests/asset-desktop.mjs` after building the desktop and Core to verify the picker and drop workflow. [File lifecycle](docs/contracts/file-lifecycle.md)
 
-For DOCX and PDF, **Open file** sends a read-only copy to the default app. Use **Edit copy** to open a writable copy and **Import changes** to save it as a new version. Check the editor matrix for the formatting preserved by tested versions. [Document editor matrix](docs/contracts/document-editor-matrix.md)
+For DOCX and PDF, **Open file** sends a read-only copy to the default app. Use **Edit copy** to open a writable copy and **Import changes** to save it as a new version. If the Windows chooser fails, use **Replace file** for a separately edited file or **Open copy folder** to recover an existing working copy. [Document editor matrix](docs/contracts/document-editor-matrix.md)
 
 Use **Add Directory** in Space to browse project files, create folders, and rename or move entries. Delete asks for confirmation and applies to files and empty folders. Run `node tests/directory-core-windows.mjs` and `node tests/directory-desktop.mjs` to verify filesystem isolation and the desktop workflow. [Directory Plain](docs/contracts/file-lifecycle.md#directory-plain)
 

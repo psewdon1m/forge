@@ -1203,6 +1203,9 @@ function Workspace() {
         <p>Use Open beside to work in a second Plain. On a narrow window, the Show buttons keep your other Plain open with its selection and draft. Close either panel or use Back to Space to return to the canvas.</p>
         <p>Choose Import files or drop files from the filesystem onto an open Space. Forge keeps the original and reports the result of each file.</p>
         <p>In Gallery, choose Import media to add images and videos. WebM and MP4 tiles show a poster and open a local player. Palette uses the still images and reports skipped videos.</p>
+        <h3>Edit PDF and DOCX copies</h3>
+        <p>Choose Edit copy and select an installed Windows editor. Save in the original format, then use Import changes in Forge to create a new version.</p>
+        <p>If Windows cannot open an editor, download the file, edit it separately and use Replace file. If you already have a working copy, use Open copy folder to recover it.</p>
         <h3>Site references</h3>
         <p>Open a Site card and enter an HTTPS address. Choose Capture current page to review a link and add a manual quote before saving it to the project. Use Clear site data to remove the session for that card.</p>
         <h3>Research sources and citations</h3>
