@@ -41,12 +41,14 @@ function UpdateConfirmation({ title, description, onCancel, children }: {
   title: string; description: string; onCancel(): void; children: ReactNode;
 }) {
   const element = useRef<HTMLDialogElement>(null);
+  const cancel = useRef<HTMLButtonElement>(null);
   const titleId = useId();
   const descriptionId = useId();
   useLayoutEffect(() => {
     const dialog = element.current;
     if (!dialog) return;
     dialog.showModal();
+    cancel.current?.focus();
     return () => dialog.close();
   }, []);
 
@@ -55,8 +57,13 @@ function UpdateConfirmation({ title, description, onCancel, children }: {
     onCancel();
   }}>
     <h3 id={titleId}>{title}</h3>
-    <p id={descriptionId}>{description}</p>
-    {children}
+    <div className="update-confirmation-body" tabIndex={-1}>
+      <p id={descriptionId}>{description}</p>
+      <div className="update-confirmation-actions">
+        <button ref={cancel} onClick={onCancel}>Cancel</button>
+        {children}
+      </div>
+    </div>
   </dialog>;
 }
 
@@ -222,10 +229,7 @@ export function UpdateSettings({ version, busy, hasProject }: Props) {
     {selection && <UpdateConfirmation title={`Install Forge ${selection.version}?`}
       description="Choose where to save a ZIP backup of application settings. Forge will verify the signed release and restart."
       onCancel={() => setSelection(undefined)}>
-      <div className="update-confirmation-actions">
-        <button onClick={() => setSelection(undefined)}>Cancel</button>
-        <button className="primary" disabled={busy} onClick={() => void stage()}>Save backup and install</button>
-      </div>
+      <button className="primary" disabled={busy} onClick={() => void stage()}>Save backup and install</button>
     </UpdateConfirmation>}
     {(job || staging) && <div className="updates-notes" role="status" aria-atomic="true">
       <p className="updates-state">{job && (!staging || jobInProgress(job)) ? jobLabel[job.phase] : 'Preparing update…'}</p>
@@ -245,14 +249,11 @@ export function UpdateSettings({ version, busy, hasProject }: Props) {
     {rollback && <UpdateConfirmation title={`Roll back to Forge ${rollback.sourceVersion}?`}
       description="Forge will restore the settings from the original update ZIP. This replaces changes to application settings made since the backup."
       onCancel={() => setRollback(undefined)}>
-      <div className="update-confirmation-actions">
-        <button onClick={() => setRollback(undefined)}>Cancel</button>
-        {hasProject && <button disabled={busy} onClick={() => {
-          focusAfterOperation.current = 'projectBackup';
-          setRollback(undefined);
-        }}>Go to project backup</button>}
-        <button className="primary" disabled={busy} onClick={() => void restart(rollback, true)}>Choose original ZIP and roll back</button>
-      </div>
+      {hasProject && <button disabled={busy} onClick={() => {
+        focusAfterOperation.current = 'projectBackup';
+        setRollback(undefined);
+      }}>Go to project backup</button>}
+      <button className="primary" disabled={busy} onClick={() => void restart(rollback, true)}>Choose original ZIP and roll back</button>
     </UpdateConfirmation>}
     {problem && <p role="alert"><span>{problem.message}</span>
       {problem.correlationId && <> Logs reference <code>{problem.correlationId}</code></>}
