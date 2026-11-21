@@ -31,7 +31,7 @@ Run the scripts from the Forge root with `node tests/SCRIPT` after building the 
 
 ## Release-host checks
 
-- Install on a clean Windows account or VM. Authenticate the launcher and verify the release manifest and exact ZIP. Compare installed hashes and record the active version.
+- Use an isolated standard-user account with no existing Forge installation on supported Windows 11 x64. Authenticate the launcher and verify the release manifest and exact ZIP. Compare installed hashes and record the active version.
 - With a supported predecessor and a project containing the oldest and newest supported file versions, save a backup, update in Settings, then reopen the same project. Verify the startup result, project database, attachments and settings. Restart once more.
 - Exercise manual rollback with the correct archive and with a missing or invalid archive. Exercise automatic rollback with a startup failure and activation interruption on the isolated qualification channel. Confirm the previous slot and project data after each recovery.
 - Run `node tests/release-windows.mjs --committed --updates --manual-rollback --slow-readiness` with the isolated test packages. It delays readiness for the successor by 15 seconds and for the previous version by 20 seconds. Confirm that the active slot is unchanged while each proof is pending, both startups complete within the budget, and rollback restores the project and settings.

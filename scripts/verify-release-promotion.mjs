@@ -54,17 +54,17 @@ export function validatePromotionReports(report, signedReport, verification, ids
 }
 
 export function validateWindowsQualification(receipt, verification, releaseId) {
-  if (!Number.isSafeInteger(releaseId) || releaseId < 1 || receipt?.schemaVersion !== 1 || receipt.profile !== 'clean-standard-user' ||
+  if (!Number.isSafeInteger(releaseId) || releaseId < 1 || receipt?.schemaVersion !== 1 || !['standard-user', 'clean-standard-user'].includes(receipt.profile) ||
       receipt.platform !== 'windows-x64' || !Number.isSafeInteger(receipt.windowsBuild) || receipt.windowsBuild < 22000 ||
       receipt.releaseId !== releaseId || receipt.tag !== verification.tag || receipt.revision !== verification.revision ||
       receipt.packageSha256 !== verification.packageSha256 || receipt.setupSha256 !== verification.setupSha256) {
-    throw new Error('Windows qualification does not match the exact immutable release and clean Windows profile');
+    throw new Error('Windows qualification does not match the exact immutable release and Windows standard-user profile');
   }
   for (const name of checks) {
     const check = receipt.checks?.[name];
     const link = typeof check?.evidence === 'string' && check.evidence.length <= 500 && URL.parse(check.evidence);
     if (check?.status !== 'PASS' || !link || link.protocol !== 'https:' || link.username || link.password || link.search) {
-      throw new Error('Missing clean Windows qualification: ' + name);
+      throw new Error('Missing Windows standard-user qualification: ' + name);
     }
   }
 }

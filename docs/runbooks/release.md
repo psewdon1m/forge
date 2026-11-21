@@ -8,7 +8,7 @@ Before building, publishing or recovering, record the host and checkout or deliv
 | --- | --- | --- |
 | Source checks and dispatch | Windows development host, Forge checkout root | Clean checkout, matching manifest version, `psewdon1m/forge` origin and exact qualified tag |
 | Draft publication | Release operator host, extracted verified signed delivery | Matching signing run ID, commit, tag and staged inventory before uploading |
-| External verification and install | Clean Windows host, separate directory containing the independently downloaded delivery | Windows build, standard user profile, immutable release ID, package and setup digests |
+| External verification and install | Supported Windows 11 x64, isolated standard-user account, and a separate directory containing the independently downloaded delivery | Windows build, standard user profile, immutable release ID, package and setup digests |
 | Recovery | Affected Windows user account, authenticated installed launcher | Active version and slot, current update job and hash of the selected recovery ZIP |
 
 Use the release and recovery procedures below for repeat operations. If an incident needs a temporary workaround, record its issue or incident ID and removal condition in the operations record. Update the corresponding runbook and retire the workaround when the corrected release is qualified.
@@ -78,7 +78,7 @@ Confirm the draft's assets and their SHA-256 against the staged delivery before 
 gh release edit $tag --repo psewdon1m/forge --draft=false --prerelease
 ```
 
-On a clean Windows 11 x64 host, use PowerShell 7 from a standard user account. Use `signed-verification.json` downloaded separately from the successful signing run to establish the expected file hashes, tag and commit. Download the files anonymously from their versioned release URLs. Authenticate the setup executable before running it. Start in an empty download directory with `signed-verification.json` copied from Actions, and set `$tag` and `$assets` as in the draft step. Use an authenticated GitHub CLI that supports `gh release verify` and `gh release verify-asset`. [GitHub CLI asset verification](https://cli.github.com/manual/gh_release_verify-asset).
+On supported Windows 11 x64, use PowerShell 7 from an isolated standard-user account with no existing Forge installation. A separate Windows installation or VM is optional. Use `signed-verification.json` downloaded separately from the successful signing run to establish the expected file hashes, tag and commit. Download the files anonymously from their versioned release URLs. Authenticate the setup executable before running it. Start in an empty download directory with `signed-verification.json` copied from Actions, and set `$tag` and `$assets` as in the draft step. Use an authenticated GitHub CLI that supports `gh release verify` and `gh release verify-asset`. [GitHub CLI asset verification](https://cli.github.com/manual/gh_release_verify-asset).
 
 ```powershell
 $repo = 'psewdon1m/forge'
@@ -112,7 +112,7 @@ if ($LASTEXITCODE -ne 0) { throw 'The attestation does not authenticate this set
 
 Install using [the first-install command](#first-installation-and-stopping-a-release). Record the exact Windows build, runtime observations, and the configured DOCX and PDF editors with their open, edit and import results. Check that this installation starts and opens a project offline. Use **Check for updates** and record that the public Stable channel skips this prerelease.
 
-On the same clean VM, qualify the F07 lifecycle on the exact checked-out revision with the isolated test-signed deliveries. Use the candidate-target scenario for a successful Settings update from the test predecessor to the target version using the same local package as first install, then restore the original project from its backup and check manual rollback. Test automatic rollback and interruption using the matching disposable successor fixtures. To use the cross-build toolchain, run `./scripts/build-core-windows-dev.ps1` in place of the native Core build and copy, and add `--docker` to the Node commands.
+On the same supported Windows host, use isolated standard-user profiles to qualify the F07 lifecycle on the exact checked-out revision with the isolated test-signed deliveries. Use the candidate-target scenario for a successful Settings update from the test predecessor to the target version using the same local package as first install, then restore the original project from its backup and check manual rollback. Test automatic rollback and interruption using the matching disposable successor fixtures. To use the cross-build toolchain, run `./scripts/build-core-windows-dev.ps1` in place of the native Core build and copy, and add `--docker` to the Node commands.
 
 ```powershell
 ./scripts/setup.ps1
@@ -127,7 +127,7 @@ node tests/release-windows.mjs --committed --updates --manual-rollback --rollbac
 
 Require exit code 0 for each run. Retain each `observations.json` and relevant logs under `.local/qualification/release-*/`. Label the production-signed delivery results and isolated test-signed lifecycle results in the evidence. For later releases, also exercise the upgrade from the oldest supported published source version before Stable. Retain the original ZIP for recovery and record the tested retention window separately.
 
-Create `windows-qualification.json` only after those checks pass. Set `schemaVersion` to `1`, `profile` to `clean-standard-user` and `platform` to `windows-x64`. Set `windowsBuild` to the integer build reported by Windows and `releaseId` to the numeric public GitHub release ID. Copy `tag`, `revision`, `packageSha256` and `setupSha256` from `signed-verification.json`. Give each `checks` entry an object with `status` set to `PASS` and `evidence` set to a public HTTPS reference without credentials or a query string.
+Create `windows-qualification.json` only after those checks pass. Set `schemaVersion` to `1`, `profile` to `standard-user` and `platform` to `windows-x64`. Set `windowsBuild` to the integer build reported by Windows and `releaseId` to the numeric public GitHub release ID. Copy `tag`, `revision`, `packageSha256` and `setupSha256` from `signed-verification.json`. Give each `checks` entry an object with `status` set to `PASS` and `evidence` set to a public HTTPS reference without credentials or a query string.
 
 | `checks` key | Evidence to retain |
 | --- | --- |
@@ -142,7 +142,7 @@ Create `windows-qualification.json` only after those checks pass. Set `schemaVer
 | `interruptedRollbackRecovery` | Recovery after interruption during manual rollback |
 | `registeredDocxAndPdfEditors` | Both editor workflows and the installed editor names and versions |
 
-Start the final Part 12 report from `signed-phase-report.json`. For REL-09 and TRUST-03, record the external evidence, change the status to `PASS` and remove `deferred_until`. Preserve the previously reviewed rows. Dispatch **Promote qualified Forge release to Stable** with this report, the clean Windows receipt and the successful signing run ID.
+Start the final Part 12 report from `signed-phase-report.json`. For REL-09 and TRUST-03, record the external evidence, change the status to `PASS` and remove `deferred_until`. Preserve the previously reviewed rows. Dispatch **Promote qualified Forge release to Stable** with this report, the Windows standard-user receipt and the successful signing run ID.
 
 ```powershell
 $signedRun = Read-Host 'Successful signing and independent verification run ID'

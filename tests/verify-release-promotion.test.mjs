@@ -33,7 +33,7 @@ const windowsChecks = [
   'interruptedRollbackRecovery', 'registeredDocxAndPdfEditors',
 ];
 const windowsReceipt = () => ({
-  schemaVersion: 1, profile: 'clean-standard-user', platform: 'windows-x64', windowsBuild: 26100, releaseId, tag, revision,
+  schemaVersion: 1, profile: 'standard-user', platform: 'windows-x64', windowsBuild: 26100, releaseId, tag, revision,
   packageSha256: verification.packageSha256, setupSha256: verification.setupSha256,
   checks: Object.fromEntries(windowsChecks.map(name => [name, { status: 'PASS', evidence: evidence + '#' + name }])),
 });
@@ -101,9 +101,10 @@ test('promotion stops for different metadata, tag, asset bytes, redirect or deni
   assert.throws(() => validatePublicRelease(stable, verification, { prerelease: false, releaseId }), /metadata differs/);
 });
 
-test('qualification binds clean Windows results to the exact installed executable and package', () => {
+test('qualification binds Windows standard-user results to the exact installed executable and package', () => {
   const accepted = windowsReceipt();
   assert.doesNotThrow(() => validateWindowsQualification(accepted, verification, releaseId));
+  assert.doesNotThrow(() => validateWindowsQualification({ ...accepted, profile: 'clean-standard-user' }, verification, releaseId));
   for (const changed of [{ releaseId: releaseId + 1 }, { setupSha256: '3'.repeat(64) }, { packageSha256: '3'.repeat(64) },
     { windowsBuild: 19045 }, { profile: 'development' }]) {
     assert.throws(() => validateWindowsQualification({ ...accepted, ...changed }, verification, releaseId), /does not match/);

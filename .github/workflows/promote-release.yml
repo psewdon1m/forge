@@ -12,7 +12,7 @@ on:
         required: true
         type: string
       windows_qualification:
-        description: Clean Windows acceptance JSON with public evidence references only
+        description: Windows standard-user acceptance JSON with public evidence references only
         required: true
         type: string
 
