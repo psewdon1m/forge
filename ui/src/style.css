@@ -190,6 +190,18 @@ h2 { margin: 0 0 12px; letter-spacing: -.03em; }
 .updates-state { font-weight: 700; }
 .updates-notes { margin-top: 16px; border-top: 1px solid var(--soft-line); padding-top: 6px; }
 .updates-release-notes { white-space: pre-wrap; overflow-wrap: anywhere; }
+.update-confirmation {
+  width: min(620px, calc(100% - 16px)); max-width: none; max-height: calc(100dvh - 16px);
+  overflow: auto; padding: 24px; border: 1px solid var(--line); background: var(--paper);
+  color: var(--ink); overflow-wrap: anywhere;
+}
+.update-confirmation::backdrop { background: rgb(17 17 16 / .45); }
+.update-confirmation h3 { margin: 0; }
+.update-confirmation-actions { display: flex; flex-wrap: wrap; gap: 8px 12px; justify-content: flex-end; }
+.update-confirmation-actions button { min-height: 40px; max-width: 100%; text-align: center; }
+@media (max-width: 600px) { .update-confirmation { padding: 16px; } }
+@media (max-width: 420px) { .update-confirmation-actions button { width: 100%; } }
+@media (pointer: coarse) { .update-confirmation-actions button { min-height: 44px; } }
 textarea { width: 100%; min-height: 180px; padding: 12px; border: 1px solid var(--line); border-radius: 0; background: var(--paper); }
 .secondary { flex: 1; }
 .secondary h1 { margin-bottom: 24px; }

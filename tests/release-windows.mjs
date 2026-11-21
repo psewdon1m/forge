@@ -577,11 +577,18 @@ async function exerciseManualRollback({ current, env, originalSettings, backup, 
 
   await window.getByRole('button', { name: 'Settings', exact: true }).click();
   let panel = window.getByRole('region', { name: 'Updates', exact: true });
-  const openConfirmation = () => panel.getByRole('button', { name: `Roll back to ${active.version}`, exact: true }).click();
-  const confirm = () => panel.getByRole('button', { name: 'Choose original ZIP and roll back', exact: true }).click();
+  const rollbackButton = panel.getByRole('button', { name: `Roll back to ${active.version}`, exact: true });
+  const confirmation = window.getByRole('dialog', { name: `Roll back to Forge ${active.version}?` });
+  const openConfirmation = () => rollbackButton.click();
+  const confirm = () => confirmation.getByRole('button', { name: 'Choose original ZIP and roll back', exact: true }).click();
+  await rollbackButton.press('Enter');
+  await expect(confirmation).toHaveAccessibleDescription(/replaces changes to application settings/);
+  await expect(confirmation.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused();
+  await window.keyboard.press('Escape');
+  await expect(confirmation).toHaveCount(0);
+  await expect(rollbackButton).toBeFocused();
   await openConfirmation();
-  await expect(panel.getByText('This replaces changes to application settings made since the backup.', { exact: false })).toBeVisible();
-  await panel.getByRole('button', { name: 'Go to project backup' }).click();
+  await confirmation.getByRole('button', { name: 'Go to project backup' }).click();
   await expect(window.getByRole('button', { name: 'Export project', exact: true })).toBeFocused();
 
   const unrelated = path.join(run, 'project-backup-before-rollback.zip');
@@ -601,7 +608,7 @@ async function exerciseManualRollback({ current, env, originalSettings, backup, 
     await confirm();
   };
   await runPicker(null);
-  await expect(panel.getByRole('button', { name: `Roll back to ${active.version}`, exact: true })).toBeEnabled();
+  await expect(rollbackButton).toBeFocused();
   for (const rejected of [unrelated, tampered]) {
     await runPicker(rejected);
     await expect(panel.getByRole('alert')).toHaveText('Choose the original ZIP saved for this update.');
@@ -697,6 +704,7 @@ async function exerciseManualRollback({ current, env, originalSettings, backup, 
     originalProjectUnchanged: true, ordinaryRestartRestoredSettings: true,
     ...(updateDiagnostics ? { updateDiagnostics } : {}),
     ...(video.length ? { verifiedVideoOnCandidateAndRollback: video } : {}),
+    keyboardConfirmationAndPickerCancelRestoredFocus: true,
     ...(rollbackCrashes ? { resumedBeforeAndAfterSettingsCommit: true } : {}),
   };
 }
@@ -828,7 +836,17 @@ try {
       channel.select('available');
       await button.click();
       const prepare = updates.getByRole('button', { name: `Install ${channel.nextVersion}` });
-      const confirm = updates.getByRole('button', { name: 'Save backup and install' });
+      const confirmation = window.getByRole('dialog', { name: `Install Forge ${channel.nextVersion}?` });
+      const confirm = confirmation.getByRole('button', { name: 'Save backup and install' });
+      const cancel = confirmation.getByRole('button', { name: 'Cancel', exact: true });
+      await prepare.press('Enter');
+      await expect(confirmation).toHaveAccessibleDescription(/save a ZIP backup of application settings/);
+      await expect(cancel).toBeFocused();
+      await window.keyboard.press('Shift+Tab');
+      await expect(confirm).toBeFocused();
+      await window.keyboard.press('Escape');
+      await expect(confirmation).toHaveCount(0);
+      await expect(prepare).toBeFocused();
       const journalPath = path.join(installation, 'update-job.json');
       const packageRequests = () => channel.requests.filter(request => request.path.endsWith('.zip')).length;
       async function selectBackup(destination) {
@@ -836,11 +854,12 @@ try {
           dialog.showSaveDialog = async () => selected ? { canceled: false, filePath: selected } : { canceled: true };
         }, destination);
         await prepare.click();
-        await expect(updates.getByRole('heading', { name: `Install Forge ${channel.nextVersion}?` })).toBeVisible();
+        await expect(confirmation).toBeVisible();
         await confirm.click();
       }
       await selectBackup(null);
-      await expect(prepare).toBeEnabled();
+      await expect(prepare).toBeFocused();
+      discovery.keyboardConfirmationAndPickerCancelRestoredFocus = true;
       assert.equal(packageRequests(), 0);
       await assert.rejects(stat(journalPath), { code: 'ENOENT' });
 
