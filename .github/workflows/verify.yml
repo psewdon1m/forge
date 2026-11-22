@@ -107,6 +107,8 @@ jobs:
         run: node scripts/release-policy.mjs catalog
       - name: Verify exact candidate as first install and update target over isolated HTTPS
         run: node tests/release-windows.mjs --updates --candidate-target --manual-rollback
+      - name: Verify staged signed candidate from local files and continue in Settings
+        run: node tests/release-windows.mjs --updates --candidate-target --manual-rollback --local-update
       - name: Verify manual rollback after interruption on both sides of the settings commit
         run: node tests/release-windows.mjs --updates --manual-rollback --rollback-crashes
       - name: Verify readiness budget during activation and manual rollback

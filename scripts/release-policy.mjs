@@ -13,10 +13,11 @@ export const catalog = Object.freeze({
 const rawRoot = 'https://raw.githubusercontent.com/psewdon1m-exocortex/general/' + catalog.catalog_revision + '/';
 const catalogLimit = 96 * 1024;
 const checkStatuses = new Set(['PASS', 'N/A']);
-const phaseOrder = ['pre-signing', 'signed-artifact', 'release-ready'];
+const phaseOrder = ['pre-signing', 'signed-artifact', 'pre-publication', 'release-ready'];
 const deferredChecks = new Map([
   ['REL-06', 'signed-artifact'],
   ['REL-09', 'release-ready'],
+  ['REL-12', 'pre-publication'],
   ['TRUST-03', 'release-ready'],
 ]);
 const hex64 = /^[a-f0-9]{64}$/;
@@ -127,7 +128,9 @@ export function gate(report, subjects, ids, { phase = 'release-ready' } = {}) {
     const requiredPhase = deferredChecks.get(check.id);
     const deferred = check.status === 'UNKNOWN' && requiredPhase !== undefined &&
       check.deferred_until === requiredPhase && currentPhase < phaseOrder.indexOf(requiredPhase);
-    if (requiredPhase && (currentPhase < phaseOrder.indexOf(requiredPhase) ? !deferred : check.status !== 'PASS')) {
+    const firstReleaseWithoutPredecessor = check.id === 'REL-12' && tag === 'forge-v0.0.1' && check.status === 'N/A';
+    if (requiredPhase && !firstReleaseWithoutPredecessor &&
+        (currentPhase < phaseOrder.indexOf(requiredPhase) ? !deferred : check.status !== 'PASS')) {
       unresolved.push(check.id);
       continue;
     }

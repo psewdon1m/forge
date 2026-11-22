@@ -719,6 +719,16 @@ pub(crate) fn staging_manifest(
     sha256: &str,
 ) -> std::result::Result<VerifiedManifest, Failure> {
     let signed = fetch_manifest(&Https::metadata().map_err(|_| Failure::Endpoint)?, trust)?;
+    validate_staging_manifest(&signed, installed, version, sha256)?;
+    Ok(signed)
+}
+
+pub(crate) fn validate_staging_manifest(
+    signed: &VerifiedManifest,
+    installed: &Active,
+    version: &str,
+    sha256: &str,
+) -> std::result::Result<(), Failure> {
     let candidate = signed.data();
     if candidate.version != version
         || candidate.artifact.sha256 != sha256
@@ -736,7 +746,7 @@ pub(crate) fn staging_manifest(
     if candidate.data_policy != Some(DataPolicy::NoMigrationV1) {
         return Err(Failure::UnsupportedUpdatePolicy);
     }
-    Ok(signed)
+    Ok(())
 }
 
 pub fn status(root: &Path, check: bool) -> Result<Status> {

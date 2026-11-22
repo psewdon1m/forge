@@ -72,6 +72,8 @@ try {
     if ($Docker) { $release += '--docker' }
     node @release --candidate-target --manual-rollback
     if ($LASTEXITCODE -ne 0) { throw 'Exact candidate first install, update and manual rollback verification failed.' }
+    node @release --candidate-target --manual-rollback --local-update
+    if ($LASTEXITCODE -ne 0) { throw 'Local signed candidate preparation and Settings continuation failed.' }
     node @release --manual-rollback --rollback-crashes
     if ($LASTEXITCODE -ne 0) { throw 'Interrupted manual rollback verification failed.' }
     node @release --failed-startup

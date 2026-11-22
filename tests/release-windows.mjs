@@ -23,6 +23,7 @@ const interruptedStartup = process.argv.includes('--interrupted-startup');
 const manualRollback = process.argv.includes('--manual-rollback');
 const rollbackCrashes = process.argv.includes('--rollback-crashes');
 const candidateTarget = process.argv.includes('--candidate-target');
+const localUpdate = process.argv.includes('--local-update');
 const slowReadiness = process.argv.includes('--slow-readiness');
 const candidateDelayMs = 15_000;
 const previousDelayMs = 20_000;
@@ -40,6 +41,9 @@ if ([failedStartup, interruptedStartup, manualRollback].filter(Boolean).length >
 if (rollbackCrashes && !manualRollback) throw new Error('Use --rollback-crashes with --manual-rollback');
 if (candidateTarget && (!discover || failedStartup || interruptedStartup)) {
   throw new Error('Use --candidate-target with --updates and an unmodified successor');
+}
+if (localUpdate && (!candidateTarget || !manualRollback || rollbackCrashes || fullBackupVolume)) {
+  throw new Error('Use --local-update with --updates --candidate-target --manual-rollback');
 }
 if (slowReadiness && (!manualRollback || candidateTarget || rollbackCrashes)) {
   throw new Error('Use --slow-readiness with --updates --manual-rollback and isolated test packages');
@@ -163,7 +167,7 @@ try {
   await mutation.close();
 }
 reject(setup, ['install', signedPath, signaturePath, changedArchive], /digest/i, { env: fresh });
-await unlink(changedArchive);
+if (!localUpdate) await unlink(changedArchive);
 const wrongCommit = await record('wrong-commit', { ...manifest, commitSha: 'f'.repeat(40) });
 reject(setup, ['install', ...wrongCommit, archive], /embedded version or commit/i, { env: fresh });
 await assert.rejects(stat(activePath), { code: 'ENOENT' });
@@ -546,7 +550,7 @@ async function verifyProjectVideo(window, expected) {
 async function exerciseManualRollback({ current, env, originalSettings, backup, database, projectSha, journalPath, video, failureEvents }) {
   let window = await reopenFixture(current, env);
   let updateDiagnostics;
-  if (candidateTarget) {
+  if (candidateTarget && !localUpdate) {
     const job = JSON.parse(await readFile(journalPath, 'utf8'));
     const archivePath = path.join(run, 'update-diagnostics.zip');
     await app.evaluate(({ dialog }, filePath) => {
@@ -1032,7 +1036,36 @@ try {
       const originalProject = await fileDigest(database);
       const originalSettings = manualRollback ? await settingsIn(window) : undefined;
       const sourceExited = once(originalProcess, 'exit');
-      await selectBackup(backup);
+      if (localUpdate) {
+        const requestsBeforeLocal = channel.requests.length;
+        const savedJob = await readFile(journalPath);
+        const offline = { ...installedEnv, FORGE_TEST_DISCOVERY_ORIGIN: 'https://127.0.0.1:1/' };
+        const command = ['stage-local-update', signedPath, signaturePath, archive];
+        const input = JSON.stringify({ version: channel.nextVersion, packageSha256: channel.packageSha256, backupPath: backup });
+        const staleSelection = JSON.parse(checked(installedHelper, command, {
+          input: JSON.stringify({ ...JSON.parse(input), version: active.version }), env: offline,
+        }));
+        assert.equal(staleSelection.rejection.code, 'selectionChanged');
+        reject(installedHelper, ['stage-local-update', signedPath, untrustedSignature, archive], /signature/i, { env: offline, input });
+        reject(installedHelper, ['stage-local-update', signedPath, signaturePath, changedArchive], /digest/i, { env: offline, input });
+        await unlink(changedArchive);
+        assert.deepEqual(await readFile(journalPath), savedJob);
+        await assert.rejects(stat(backup), { code: 'ENOENT' });
+        const staged = JSON.parse(checked(installedHelper, command, { env: offline, input, timeout: 60_000 }));
+        assert.equal(staged.phase, 'staged');
+        assert.equal(staged.targetPackageSha256, channel.packageSha256);
+        assert.deepEqual(JSON.parse(await readFile(activePath, 'utf8')), active);
+        assert.equal(channel.requests.length, requestsBeforeLocal);
+        await app.evaluate(({ dialog }, selected) => {
+          dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [selected] });
+        }, backup);
+        await window.getByRole('button', { name: 'Space', exact: true }).click();
+        await window.getByRole('button', { name: 'Settings', exact: true }).click();
+        await updates.getByRole('button', { name: 'Continue installation', exact: true }).click();
+        discovery.localUpdate = { unchangedOnInvalidInputs: true, downloadedFromNetwork: false, stagedThenContinuedFromSettings: true };
+      } else {
+        await selectBackup(backup);
+      }
       const candidateWait = slowReadiness
         ? await observeDelayedReadiness(journalPath, 'starting', channel.nextVersion, candidateDelayMs, active)
         : undefined;
@@ -1055,7 +1088,7 @@ try {
       const journal = JSON.parse(await readFile(journalPath, 'utf8'));
       assert.equal(journal.phase, expectedPhase, JSON.stringify({ issue: journal.issue, recoveryIssue: journal.recoveryIssue }));
       const readiness = candidateWait && completedDelayedReadiness(candidateWait, journal.phase);
-      if (candidateTarget) {
+      if (candidateTarget && !localUpdate) {
         const [first, second, third, ...unexpected] = cdnAttempts().slice(preActivationCdnAttempts);
         assert.ok(first && second && third);
         assert.equal(unexpected.length, 0);

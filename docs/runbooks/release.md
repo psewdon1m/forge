@@ -39,7 +39,7 @@ Run `./scripts/pre-push.ps1 -Base <base-sha> -Head <outgoing-sha>` from a clean 
 1. Review the outgoing diff and record the seven Part 06 areas for the exact revision. Protect `main` and qualified tags. Configure the repository variable `FORGE_RELEASE_PUBLIC_KEY_HEX` with the Ed25519 public anchor. Configure the `forge-release-signing` environment with reviewer protection, qualified tag restrictions and the protected `FORGE_RELEASE_SIGNING_KEY` PKCS#8 PEM. The protected step passes the PEM through standard input to the signer with the secret excluded from the signer process environment. [GitHub environments](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments).
 2. Confirm the version in `package.json`, both lockfiles, the workspace manifest, and release notes. Create `forge-v<version>` at the intended remote `main` commit. Run `node scripts/qualified-release-ref.mjs refs/tags/forge-v<version>` after pushing the checked tag to verify the remote and checkout. Plain `v<version>` tags run verification only.
 3. The qualified tag builds the ZIP once. The unprivileged Windows job verifies those bytes with a disposable test key and launcher. The candidate launcher and ZIP keep the production public anchor. Save the successful candidate run ID and SHA-256. Confirm rights for the distributed files and retain the licence evidence.
-4. Draft `known-problems-report.json` from the candidate's unsigned manifest. Review every active ID from the pinned catalog. Record verifiable evidence for PASS. For N/A, record the verified profile, relevant components and reason. Set REL-06 to `UNKNOWN` with `deferred_until` set to `signed-artifact`. Set REL-09 and TRUST-03 to `UNKNOWN` with `deferred_until` set to `release-ready`. For each deferred row, give the reason and a public reference to the verification procedure. The gate requires these three checks at their documented stages and blocks any other `UNKNOWN` or any `FAIL`. Keep only public evidence references in the report because it travels through a workflow input and into the release bundle.
+4. Draft `known-problems-report.json` from the candidate's unsigned manifest. Review every active ID from the pinned catalog. Record verifiable evidence for PASS. For N/A, record the verified profile, relevant components and reason. Set REL-06 to `UNKNOWN` with `deferred_until` set to `signed-artifact`. Set REL-12 to `UNKNOWN` with `deferred_until` set to `pre-publication` when a published Stable predecessor exists. For the first `forge-v0.0.1`, use N/A with a public release-history reference proving that there is no published Stable predecessor. Set REL-09 and TRUST-03 to `UNKNOWN` with `deferred_until` set to `release-ready`. For each deferred row, give the reason and a public reference to the verification procedure. Keep only public evidence references in the report because it travels through a workflow input and into the release bundle.
 5. Dispatch **Record Forge candidate review** on the same qualified tag with the reviewed report and candidate run ID. Wait for a successful run with the `forge-known-problems-review` artifact. This read-only workflow validates the exact ZIP, provenance, smoke results and Part 12 pre-signing report.
 6. Dispatch **Prepare signed Forge release** on the same tag with the successful candidate and review run IDs. Its read-only gate checks the successful Verify workflow for the exact `main` commit. The protected signer redownloads the approved bytes, matches the key to the embedded anchor and creates the signed delivery. A separate read-only job verifies the detached signature, the approved bytes and the exact asset inventory with the public anchor. It records REL-06 as PASS in `signed-phase-report.json` and uploads it with `signed-verification.json` in `forge-signed-release-review`. Wait for the successful run and download `forge-staged-signed-delivery` from that run.
 
@@ -57,6 +57,39 @@ Submit the last command after the report review. The workflow dispatch field has
 
 The first public release also requires F08 acceptance and an independently authenticated first-install executable. Enable GitHub immutable releases before publishing. Retain the exact previous signed bundle and its evidence for the supported rollback window and record the expiry before promotion.
 
+## Compatibility before publication
+
+Work from the successful signing run. Keep the extracted `forge-staged-signed-delivery` and `forge-signed-release-review` directories separate. Verify the previous published bundle and install it in an isolated standard-user Windows profile for each supported source version, including the immediate predecessor. Open Forge through its installed launcher. Use only synthetic or copied test data in these profiles.
+
+Run these commands from a PowerShell window under that same standard-user account. Set `$delivery` to the absolute staged delivery directory. Choose a new absolute `$backup` path outside the installation. The installed helper verifies the selected signature with its installed trust and checks the same version, project schema, Windows build and digest limits used by Stable.
+
+```powershell
+$installation = Join-Path $env:LOCALAPPDATA 'Forge/Installation'
+$active = & (Join-Path $installation 'Forge Launcher.exe') status | ConvertFrom-Json
+if ($LASTEXITCODE -ne 0) { throw 'Could not verify the installed source version.' }
+$helper = Join-Path $installation "slots/$($active.slot)/forge-update-helper.exe"
+$manifestPath = Join-Path $delivery 'forge-release.json'
+$signaturePath = Join-Path $delivery 'forge-release.sig'
+$candidate = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
+$package = Join-Path $delivery "forge-$($candidate.version)-windows-x64.zip"
+$request = @{version=$candidate.version; packageSha256=$candidate.artifact.sha256; backupPath=$backup} |
+  ConvertTo-Json -Compress
+$job = $request | & $helper stage-local-update $manifestPath $signaturePath $package | ConvertFrom-Json
+if ($LASTEXITCODE -ne 0 -or $job.phase -cne 'staged' -or
+    $job.targetPackageSha256 -cne $candidate.artifact.sha256) {
+  throw 'The installed source version could not stage this signed archive.'
+}
+```
+
+If the signed delivery includes a reviewed key transition, provide its document and detached signature as the last two arguments. Open **Settings → Updates** and select **Continue installation**. Choose the backup ZIP prepared by this job. Verify the activated version and project state, then roll back through Settings and verify the original version and data. Record the previous version, both package digests, signing run, results and public evidence for each source version. Copy the signed-phase report to a separate working file and complete REL-12 with those results. For the first release with no predecessor, preserve the reviewed N/A. The same stage and activation path can be rehearsed locally with `node tests/release-windows.mjs --committed --updates --candidate-target --manual-rollback --local-update` and a test-signed package.
+
+Before making the draft public, run this check from the qualified checkout with the separate working report and both extracted artifact directories. It verifies the package hashes against the signing run and checks the completed compatibility evidence while REL-09 and TRUST-03 still await external verification.
+
+```powershell
+node scripts/verify-release-promotion.mjs pre-publication $report $signedReview $delivery
+if ($LASTEXITCODE -ne 0) { throw 'Pre-publication qualification failed.' }
+```
+
 ## External verification and Stable promotion
 
 Create a GitHub draft from the exact staged signed delivery. Run these commands from the extracted `forge-staged-signed-delivery` directory. The manifest, signature, bootstrap and ZIP come from the same approved build.
@@ -72,7 +105,7 @@ $assets = @(
 gh release create $tag @assets --repo psewdon1m/forge --verify-tag --draft --prerelease --notes-file release-notes.md
 ```
 
-Confirm the draft's assets and their SHA-256 against the staged delivery before publication. Publish the draft with the prerelease flag still set. GitHub locks the assets and tag upon immutable publication. Forge Stable skips prereleases, so the exact published files can be checked anonymously before operators promote them. [GitHub immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases).
+Confirm the draft's assets and their SHA-256 against the staged delivery and complete the pre-publication check. Publish the draft with the prerelease flag still set. GitHub locks the assets and tag upon immutable publication. Forge Stable skips prereleases, so the exact published files can be checked anonymously before operators promote them. [GitHub immutable releases](https://docs.github.com/en/code-security/concepts/supply-chain-security/immutable-releases).
 
 ```powershell
 gh release edit $tag --repo psewdon1m/forge --draft=false --prerelease
@@ -125,7 +158,7 @@ node tests/release-windows.mjs --committed --updates --interrupted-startup
 node tests/release-windows.mjs --committed --updates --manual-rollback --rollback-crashes
 ```
 
-Require exit code 0 for each run. Retain each `observations.json` and relevant logs under `.local/qualification/release-*/`. Label the production-signed delivery results and isolated test-signed lifecycle results in the evidence. For later releases, also exercise the upgrade from the oldest supported published source version before Stable. Retain the original ZIP for recovery and record the tested retention window separately.
+Require exit code 0 for each run. Retain each `observations.json` and relevant logs under `.local/qualification/release-*/`. Label the production-signed delivery results and isolated test-signed lifecycle results in the evidence. For later releases, retain the exact compatibility evidence recorded before publication. Retain the original ZIP for recovery and record the tested retention window separately.
 
 Create `windows-qualification.json` only after those checks pass. Set `schemaVersion` to `1`, `profile` to `standard-user` and `platform` to `windows-x64`. Set `windowsBuild` to the integer build reported by Windows and `releaseId` to the numeric public GitHub release ID. Copy `tag`, `revision`, `packageSha256` and `setupSha256` from `signed-verification.json`. Give each `checks` entry an object with `status` set to `PASS` and `evidence` set to a public HTTPS reference without credentials or a query string.
 
@@ -142,7 +175,7 @@ Create `windows-qualification.json` only after those checks pass. Set `schemaVer
 | `interruptedRollbackRecovery` | Recovery after interruption during manual rollback |
 | `registeredDocxAndPdfEditors` | Both editor workflows and the installed editor names and versions |
 
-Start the final Part 12 report from `signed-phase-report.json`. For REL-09 and TRUST-03, record the external evidence, change the status to `PASS` and remove `deferred_until`. Preserve the previously reviewed rows. Dispatch **Promote qualified Forge release to Stable** with this report, the Windows standard-user receipt and the successful signing run ID.
+Start the final Part 12 report from the working report used before publication. For REL-09 and TRUST-03, record the external evidence, change the status to `PASS` and remove `deferred_until`. Preserve the previously reviewed rows. Dispatch **Promote qualified Forge release to Stable** with this report, the Windows standard-user receipt and the successful signing run ID.
 
 ```powershell
 $signedRun = Read-Host 'Successful signing and independent verification run ID'

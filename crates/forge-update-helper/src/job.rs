@@ -1,6 +1,6 @@
 use std::{
     collections::BTreeMap,
-    fs::{self, OpenOptions, TryLockError},
+    fs::{self, File, OpenOptions, TryLockError},
     io::{self, Read, Write},
     path::{Path, PathBuf},
 };
@@ -18,8 +18,8 @@ use crate::{
     Result, bundle,
     discovery::{self, AssetHttpFailure, ChannelProblem, DownloadFailure, Https},
     install::{self, Active},
-    manifest::{canonical, lower_hex, stable_version},
-    open_with_sharing, startup,
+    manifest::{METADATA_LIMIT, VerifiedManifest, canonical, lower_hex, stable_version},
+    open_with_sharing, read_bounded, startup,
 };
 
 mod manual;
@@ -34,6 +34,13 @@ pub struct StageRequest {
     version: String,
     package_sha256: String,
     backup_path: PathBuf,
+}
+
+pub struct LocalBundle<'a> {
+    pub manifest: &'a Path,
+    pub signature: &'a Path,
+    pub package: &'a Path,
+    pub transition: Option<(&'a Path, &'a Path)>,
 }
 
 #[derive(Deserialize)]
@@ -378,10 +385,26 @@ fn archive_path(root: &Path, id: Uuid) -> PathBuf {
 }
 
 pub fn stage(root: &Path, request: StageRequest) -> Result<StageReply> {
+    stage_selected(root, request, None)
+}
+
+pub fn stage_local(
+    root: &Path,
+    request: StageRequest,
+    bundle: LocalBundle<'_>,
+) -> Result<StageReply> {
+    stage_selected(root, request, Some(bundle))
+}
+
+fn stage_selected(
+    root: &Path,
+    request: StageRequest,
+    local: Option<LocalBundle<'_>>,
+) -> Result<StageReply> {
     let (previous, _) = discovery::verified_helper(root)?;
     let _guard =
         install::acquire(root).map_err(|_| "Another update operation may already be running")?;
-    let (current, trust) = discovery::verified_helper(root)?;
+    let (current, mut trust) = discovery::verified_helper(root)?;
     if current != previous {
         return Err("The active version changed before the update started".into());
     }
@@ -398,17 +421,45 @@ pub fn stage(root: &Path, request: StageRequest) -> Result<StageReply> {
     }) {
         return Err("Finish the existing update before preparing another".into());
     }
-    let signed = match discovery::staging_manifest(
-        trust,
-        &current,
-        &request.version,
-        &request.package_sha256,
-    ) {
-        Ok(signed) => signed,
-        Err(failure) => {
+    let (signed, local_file) = if let Some(LocalBundle {
+        manifest,
+        signature,
+        package,
+        transition,
+    }) = local
+    {
+        if let Some((transition, signature)) = transition {
+            trust = trust.with_transition(
+                &read_bounded(transition, METADATA_LIMIT)?,
+                &read_bounded(signature, 64)?,
+            )?;
+        }
+        let signed = trust.read_release(manifest, signature)?;
+        if let Err(failure) = discovery::validate_staging_manifest(
+            &signed,
+            &current,
+            &request.version,
+            &request.package_sha256,
+        ) {
             return Ok(StageReply::Rejected {
                 rejection: failure.problem(),
             });
+        }
+        let file = bundle::verified_file(package, &signed)?;
+        (signed, Some(file))
+    } else {
+        match discovery::staging_manifest(
+            trust,
+            &current,
+            &request.version,
+            &request.package_sha256,
+        ) {
+            Ok(signed) => (signed, None),
+            Err(failure) => {
+                return Ok(StageReply::Rejected {
+                    rejection: failure.problem(),
+                });
+            }
         }
     };
     if let Some(last) = last {
@@ -430,7 +481,14 @@ pub fn stage(root: &Path, request: StageRequest) -> Result<StageReply> {
     };
     job.write(root)?;
     let package = archive_path(root, job.id);
-    let result = prepare(root, &request.backup_path, &package, &signed, &mut job);
+    let result = prepare(
+        root,
+        &request.backup_path,
+        &package,
+        &signed,
+        local_file,
+        &mut job,
+    );
     let _ = fs::remove_file(package);
     if let Err(issue) = result {
         job.phase = Phase::Failed;
@@ -588,7 +646,8 @@ fn prepare(
     root: &Path,
     destination: &Path,
     package: &Path,
-    release: &crate::manifest::VerifiedManifest,
+    release: &VerifiedManifest,
+    local_file: Option<File>,
     job: &mut Job,
 ) -> std::result::Result<(), Issue> {
     let profile = root.parent().ok_or(Issue::Backup)?.join("Profile");
@@ -616,23 +675,27 @@ fn prepare(
     job.backup = Some(receipt.clone());
     job.phase = Phase::BackupSaved;
     job.write(root).map_err(|_| Issue::Storage)?;
-    job.phase = Phase::Downloading;
-    job.write(root).map_err(|_| Issue::Storage)?;
-    let mut file = OpenOptions::new()
-        .create_new(true)
-        .write(true)
-        .open(package)
-        .map_err(|_| Issue::Storage)?;
-    Https::download(release, &mut file).map_err(|error| {
-        if let DownloadFailure::Http(failure) = error {
-            job.download_http_error = Some(failure);
-        }
-        Issue::Download
-    })?;
-    drop(file);
+    if local_file.is_none() {
+        job.phase = Phase::Downloading;
+        job.write(root).map_err(|_| Issue::Storage)?;
+        let mut file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(package)
+            .map_err(|_| Issue::Storage)?;
+        Https::download(release, &mut file).map_err(|error| {
+            if let DownloadFailure::Http(failure) = error {
+                job.download_http_error = Some(failure);
+            }
+            Issue::Download
+        })?;
+    }
     job.phase = Phase::Verifying;
     job.write(root).map_err(|_| Issue::Storage)?;
-    let verified = bundle::verified_file(package, release).map_err(|_| Issue::Verification)?;
+    let verified = match local_file {
+        Some(file) => file,
+        None => bundle::verified_file(package, release).map_err(|_| Issue::Verification)?,
+    };
     prepared
         .for_install(&receipt)
         .map_err(|_| Issue::BackupChanged)?;

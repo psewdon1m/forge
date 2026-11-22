@@ -7,7 +7,7 @@ import test from 'node:test';
 import { bootstrapName, canonical, packageName, releaseBase, signedDeliveryFiles } from '../scripts/release-format.mjs';
 import { draftReport } from '../scripts/release-policy.mjs';
 import { completeSignedReport } from '../scripts/verify-signed-release.mjs';
-import { publishApprovedRelease, validatePromotionReports, validatePublicRelease, validateWindowsQualification, verifyPublicDelivery } from '../scripts/verify-release-promotion.mjs';
+import { publishApprovedRelease, validatePromotionReports, validatePublicRelease, validateWindowsQualification, verifyFirstReleaseApplicability, verifyPublicDelivery } from '../scripts/verify-release-promotion.mjs';
 
 const digest = value => createHash('sha256').update(value).digest('hex');
 const version = '0.0.1';
@@ -113,22 +113,37 @@ test('qualification binds Windows standard-user results to the exact installed e
   assert.throws(() => validateWindowsQualification(accepted, verification, releaseId), /manualRollback/);
 });
 
-test('external evidence closes only the two remaining Part 12 rows', () => {
-  const ids = new Set(['REL-01', 'REL-06', 'REL-09', 'TRUST-03']);
+test('publication and external evidence close only the deferred Part 12 rows at their assigned phase', () => {
+  const ids = new Set(['REL-01', 'REL-06', 'REL-09', 'REL-12', 'TRUST-03']);
   const complete = id => ({ id, status: 'PASS', reason: null, evidence: [evidence] });
   const report = draftReport(verification, ids);
   const deferred = (id, phase) => ({ id, status: 'UNKNOWN', deferred_until: phase, reason: 'Wait for exact published files.', evidence: [evidence] });
-  report.checks = [complete('REL-01'), deferred('REL-06', 'signed-artifact'), deferred('REL-09', 'release-ready'), deferred('TRUST-03', 'release-ready')];
+  report.checks = [complete('REL-01'), deferred('REL-06', 'signed-artifact'), deferred('REL-09', 'release-ready'),
+    deferred('REL-12', 'pre-publication'), deferred('TRUST-03', 'release-ready')];
   const signed = completeSignedReport(report, verification, ids, evidence);
   const signedBytes = Buffer.from(canonical(signed));
   const verified = { ...verification, signedReportSha256: digest(signedBytes) };
   assert.equal(signed.checks.find(row => row.id === 'REL-06').status, 'PASS');
+  assert.throws(() => validatePromotionReports(signed, signedBytes, verified, ids, 'pre-publication'), /Unresolved IDs: REL-12/);
+  const beforePublication = { ...signed, checks: signed.checks.map(row => row.id === 'REL-12' ? complete(row.id) : row) };
+  assert.doesNotThrow(() => validatePromotionReports(beforePublication, signedBytes, verified, ids, 'pre-publication'));
   const final = { ...signed, checks: signed.checks.map(row => row.status === 'UNKNOWN' ? complete(row.id) : row) };
   assert.doesNotThrow(() => validatePromotionReports(final, signedBytes, verified, ids));
-  assert.throws(() => validatePromotionReports(signed, signedBytes, verified, ids), /REL-09, TRUST-03/);
+  assert.throws(() => validatePromotionReports(signed, signedBytes, verified, ids), /REL-09, REL-12, TRUST-03/);
   assert.throws(() => validatePromotionReports(final, Buffer.from('changed report'), verified, ids), /digest changed/);
   final.checks[0].evidence = ['different evidence'];
   assert.throws(() => validatePromotionReports(final, signedBytes, verified, ids), /approved Part 12 row changed/);
+});
+
+test('the first-release exception requires live evidence that Forge has no published Stable predecessor', async () => {
+  const report = { checks: [{ id: 'REL-12', status: 'N/A' }] };
+  const read = releases => async url => {
+    assert.equal(url, 'https://api.github.com/repos/psewdon1m/forge/releases?per_page=100&page=1');
+    return Response.json(releases);
+  };
+  await verifyFirstReleaseApplicability(report, read([publicRelease()]));
+  await assert.rejects(verifyFirstReleaseApplicability(report, read([{ ...publicRelease(), prerelease: false }])), /published Stable release/);
+  await assert.rejects(verifyFirstReleaseApplicability(report, async () => new Response('', { status: 403 })), /HTTP 403/);
 });
 
 test('Stable promotion updates only the verified release and can retry after a successful write', async () => {

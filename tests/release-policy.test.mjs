@@ -70,6 +70,7 @@ test('only explicit evidence deferred to its legitimate phase can pass an earlie
     ['REL-01', undefined],
     ['REL-06', 'signed-artifact'],
     ['REL-09', 'release-ready'],
+    ['REL-12', 'pre-publication'],
     ['TRUST-03', 'release-ready'],
   ]);
   const phasedIds = new Set(checks.keys());
@@ -84,7 +85,10 @@ test('only explicit evidence deferred to its legitimate phase can pass an earlie
   assert.throws(() => gate(report, subjects, phasedIds, { phase: 'signed-artifact' }), /Unresolved IDs: REL-06/);
   const signed = { ...report, checks: report.checks.map(row => row.id === 'REL-06' ? completed(row.id) : row) };
   assert.equal(gate(signed, subjects, phasedIds, { phase: 'signed-artifact' }), phasedIds.size);
-  assert.throws(() => gate(signed, subjects, phasedIds), /Unresolved IDs: REL-09, TRUST-03/);
+  assert.throws(() => gate(signed, subjects, phasedIds, { phase: 'pre-publication' }), /Unresolved IDs: REL-12/);
+  assert.throws(() => gate(signed, subjects, phasedIds), /Unresolved IDs: REL-09, REL-12, TRUST-03/);
+  const prePublication = { ...signed, checks: signed.checks.map(row => row.id === 'REL-12' ? completed(row.id) : row) };
+  assert.equal(gate(prePublication, subjects, phasedIds, { phase: 'pre-publication' }), phasedIds.size);
   assert.equal(gate({ ...signed, checks: [...phasedIds].map(completed) }, subjects, phasedIds), phasedIds.size);
   for (const row of [
     pending('REL-01', 'release-ready'),
@@ -93,6 +97,8 @@ test('only explicit evidence deferred to its legitimate phase can pass an earlie
     { ...pending('REL-09', 'release-ready'), reason: '' },
     { ...pending('TRUST-03', 'release-ready'), evidence: [] },
     completed('TRUST-03'),
+    pending('REL-12', 'release-ready'),
+    completed('REL-12'),
   ]) {
     const modified = { ...report, checks: report.checks.map(check => check.id === row.id ? row : check) };
     assert.throws(() => gate(modified, subjects, phasedIds, { phase: 'pre-signing' }));
@@ -101,4 +107,10 @@ test('only explicit evidence deferred to its legitimate phase can pass an earlie
   assert.throws(() => gate({ ...report, checks: [...phasedIds].map(id => id === 'REL-09' ? {
     id, status: 'N/A', evidence: ['not applicable fixture'], reason: 'Wrong profile for Forge',
   } : completed(id)) }, subjects, phasedIds), /Unresolved IDs: REL-09/);
+  const first = { ...signed, checks: signed.checks.map(row => row.id === 'REL-12' ? {
+    id: row.id, status: 'N/A', evidence: ['release history receipt'], reason: 'No published Forge predecessor.',
+  } : row) };
+  assert.equal(gate(first, subjects, phasedIds, { phase: 'pre-publication' }), phasedIds.size);
+  const later = { ...subjects, tag: 'forge-v0.0.2' };
+  assert.throws(() => gate({ ...first, release_tag: later.tag }, later, phasedIds, { phase: 'pre-publication' }), /Unresolved IDs: REL-12/);
 });

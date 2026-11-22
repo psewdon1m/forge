@@ -14,10 +14,21 @@ fn run() -> Result<()> {
     let args = env::args_os().skip(1).collect::<Vec<_>>();
     match args.as_slice() {
         [command] if command == "stage-update" => {
-            let mut bytes = Vec::new();
-            io::stdin().take(64 * 1024 + 1).read_to_end(&mut bytes)?;
-            if bytes.len() > 64 * 1024 { return Err("Update request is too large".into()); }
-            println!("{}", serde_json::to_string(&job::stage(&per_user_root()?, serde_json::from_slice(&bytes)?)?)?);
+            println!("{}", serde_json::to_string(&job::stage(&per_user_root()?, stage_request()?)?)?);
+            Ok(())
+        }
+        [command, manifest, signature, package, rest @ ..] if command == "stage-local-update" => {
+            let transition = match rest {
+                [] => None,
+                [transition, signature] => Some((Path::new(transition), Path::new(signature))),
+                _ => return Err("Expected a transition and its detached signature".into()),
+            };
+            let staged = job::stage_local(
+                &per_user_root()?,
+                stage_request()?,
+                job::LocalBundle { manifest: Path::new(manifest), signature: Path::new(signature), package: Path::new(package), transition },
+            )?;
+            println!("{}", serde_json::to_string(&staged)?);
             Ok(())
         }
         [command] if command == "update-status" || command == "check-updates" => {
@@ -43,8 +54,19 @@ fn run() -> Result<()> {
             println!("{}", serde_json::to_string(manifest.data())?);
             Ok(())
         }
-        _ => Err("Use pack SOURCE ZIP or verify-release MANIFEST SIGNATURE ZIP [TRANSITION TRANSITION-SIGNATURE]".into()),
+        _ => Err("Use pack SOURCE ZIP, verify-release or stage-local-update MANIFEST SIGNATURE ZIP [TRANSITION TRANSITION-SIGNATURE]".into()),
     }
+}
+
+fn stage_request() -> Result<job::StageRequest> {
+    let mut bytes = Vec::new();
+    io::stdin()
+        .take(METADATA_LIMIT as u64 + 1)
+        .read_to_end(&mut bytes)?;
+    if bytes.len() > METADATA_LIMIT {
+        return Err("Update request is too large".into());
+    }
+    Ok(serde_json::from_slice(&bytes)?)
 }
 
 fn main() -> ExitCode {
