@@ -153,6 +153,8 @@ try {
   await page.getByRole('region', { name: 'Recent projects' }).getByRole('button', { name: 'Gallery qualification' }).click();
   await expect(page.getByText('4 objects · 2 links')).toBeVisible();
   assert.deepEqual((await view()).space, beforeRestart.space);
+  await fit();
+  await expect(card(palette.id)).toBeVisible();
   await card(palette.id).dblclick();
   await expect(page.getByRole('region', { name: 'Linked source' }).getByText('27 linked files')).toBeVisible();
   await writeFile(path.join(run, 'observations.json'), JSON.stringify({
