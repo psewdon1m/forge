@@ -1173,7 +1173,7 @@ try {
     }
   }
   const evidence = {
-    outcome: 'PASS', platform: 'windows-x64', channel: 'test signing key', version: workspaceVersion, delivery,
+    outcome: 'PASS', platform: 'windows-x64', channel: 'test signing key', version: workspaceVersion,
     candidateCommit: testCommit, candidateCommitIsFixture: !committed,
     packageBytes: manifest.artifact.bytes, packageSha256: manifest.artifact.sha256,
     setupSha256: await fileDigest(bootstrap), signedManifestSha256: await fileDigest(signedPath),
@@ -1185,7 +1185,7 @@ try {
     ...(interruptedInstall ? { interruptedFirstInstall: { retriedSameSignedPackage: true, abandonedSlotRemoved: true } } : {}),
     ...discovery,
   };
-  await writeFile(path.join(run, 'observations.json'), JSON.stringify(evidence, null, 2) + '\n');
+  await writeFile(path.join(run, 'observations.json'), JSON.stringify({ ...evidence, delivery }, null, 2) + '\n');
   if (candidate) {
     await writeFile(path.join(delivery, 'forge-release.unsigned.json'), canonical(manifest), { flag: 'wx' });
     await writeFile(path.join(delivery, 'forge-package-smoke.json'), canonical(evidence), { flag: 'wx' });

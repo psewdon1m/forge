@@ -48,6 +48,13 @@ Run the report commands from the checked release revision, with the downloaded c
 ```powershell
 node scripts/release-policy.mjs draft candidate/forge-release.unsigned.json |
   Set-Content -Encoding utf8 known-problems-report.json
+```
+
+After filling the reviewed rows, check that the report contains only the public schema and HTTPS evidence references without credentials or query strings. Keep local paths in the local operations journal.
+
+```powershell
+node scripts/release-policy.mjs public-report known-problems-report.json
+if ($LASTEXITCODE -ne 0) { throw 'Check the public evidence references before dispatch.' }
 $candidateRun = Read-Host 'Successful candidate run ID'
 gh workflow run release-review.yml --repo psewdon1m/forge --ref forge-v0.0.1 `
   --raw-field "candidate_run_id=$candidateRun" --field "report=@known-problems-report.json"
@@ -178,6 +185,8 @@ Create `windows-qualification.json` only after those checks pass. Set `schemaVer
 Start the final Part 12 report from the working report used before publication. For REL-09 and TRUST-03, record the external evidence, change the status to `PASS` and remove `deferred_until`. Preserve the previously reviewed rows. Dispatch **Promote qualified Forge release to Stable** with this report, the Windows standard-user receipt and the successful signing run ID.
 
 ```powershell
+node scripts/release-policy.mjs public-report known-problems-report.json
+if ($LASTEXITCODE -ne 0) { throw 'Check the public evidence references before dispatch.' }
 $signedRun = Read-Host 'Successful signing and independent verification run ID'
 gh workflow run promote-release.yml --repo psewdon1m/forge --ref $tag `
   --raw-field "signed_run_id=$signedRun" --field "report=@known-problems-report.json" `

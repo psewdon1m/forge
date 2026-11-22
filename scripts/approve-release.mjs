@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { bootstrapName, candidateDeliveryFiles, canonical, fileDigest, manifestFor, packageName } from './release-format.mjs';
-import { gate, loadCatalog } from './release-policy.mjs';
+import { gate, loadCatalog, validatePublicPart12Report } from './release-policy.mjs';
 
 const [delivery, reportFile, approvalDir, version, commitSha, runId] = process.argv.slice(2);
 if (process.argv.length !== 8 || !/^\d{1,20}$/.test(runId)) throw new Error('Expected candidate paths, version, commit and run');
@@ -19,7 +19,7 @@ const manifest = await manifestFor({ version, commitSha, packagePath: path.join(
 if (await read('forge-release.unsigned.json') !== canonical(manifest)) throw new Error('Unsigned manifest does not describe the exact bundle');
 const smoke = JSON.parse(await read('forge-package-smoke.json'));
 const setupSha256 = await digest(setup);
-if (smoke.outcome !== 'PASS' || smoke.candidateCommitIsFixture !== false || smoke.candidateCommit !== commitSha ||
+if (Object.hasOwn(smoke, 'delivery') || smoke.outcome !== 'PASS' || smoke.candidateCommitIsFixture !== false || smoke.candidateCommit !== commitSha ||
     smoke.version !== version || smoke.packageSha256 !== manifest.artifact.sha256 || smoke.setupSha256 !== setupSha256 ||
     smoke.offNetwork !== true || smoke.launchedExactSlotAndCreatedLocalProject !== true) {
   throw new Error('Candidate smoke evidence is missing or does not match this package');
@@ -38,6 +38,7 @@ if (provenance.predicate?.source?.commitSha !== commitSha || provenance.predicat
 const { ids } = await loadCatalog();
 const report = JSON.parse(await readFile(reportFile, 'utf8'));
 gate(report, { tag: manifest.tag, revision: commitSha, packageSha256: manifest.artifact.sha256 }, ids, { phase: 'pre-signing' });
+validatePublicPart12Report(report);
 await mkdir(approvalDir);
 await copyFile(reportFile, path.join(approvalDir, 'known-problems-report.json'));
 await writeFile(path.join(approvalDir, 'approval.json'), canonical({

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
+import { isIP } from 'node:net';
 import { pathToFileURL } from 'node:url';
 import { commitFormat, stableVersion } from './release-format.mjs';
 
@@ -21,6 +22,9 @@ const deferredChecks = new Map([
   ['TRUST-03', 'release-ready'],
 ]);
 const hex64 = /^[a-f0-9]{64}$/;
+const reportFields = new Set(['schema_version', 'service', 'revision', 'release_tag', 'candidate_sha256', 'checks', ...Object.keys(catalog)]);
+const checkFields = new Set(['id', 'status', 'evidence', 'reason', 'deferred_until']);
+const localPath = /(?:\b[a-z]:[\\/]|\\\\|\/(?:users|home|mnt|tmp)\/|\.(?:local|history|secrets)[\\/])/i;
 const runRequirements = new Map([
   ['candidate', { path: '.github/workflows/release.yml', event: 'push' }],
   ['review', { path: '.github/workflows/release-review.yml', event: 'workflow_dispatch' }],
@@ -30,6 +34,37 @@ const runRequirements = new Map([
 function content(text, name, max = 2000) {
   if (typeof text !== 'string' || text.trim().length === 0 || text.length > max || /[\p{Cc}]/u.test(text)) {
     throw new Error('Invalid or missing ' + name);
+  }
+}
+
+export function isPublicEvidenceUrl(value) {
+  if (typeof value !== 'string' || value.length > 500 || !/^https:\/\//i.test(value) || /[\p{Cc}\s\\]/u.test(value)) return false;
+  const url = URL.parse(value);
+  return !!url && url.protocol === 'https:' && !url.username && !url.password && !url.port && !url.search &&
+    url.hostname.includes('.') && !isIP(url.hostname) && !url.hostname.startsWith('[') &&
+    !/\.(?:local|localhost|internal|lan|home)\.?$/i.test(url.hostname);
+}
+
+export function validatePublicPart12Report(report) {
+  if (!Array.isArray(report?.checks) || report.schema_version !== 1 || report.service !== 'forge' ||
+      Object.keys(report).some(field => !reportFields.has(field)) ||
+      Object.entries(catalog).some(([field, value]) => report[field] !== value)) {
+    throw new Error('Unexpected fields in the public Part 12 report');
+  }
+  checkSubjects({ tag: report.release_tag, revision: report.revision, packageSha256: report.candidate_sha256 });
+  for (const row of report.checks) {
+    if (!row || !/^[A-Z]+-\d{2}$/.test(row.id) || Object.keys(row).some(field => !checkFields.has(field)) ||
+        (!checkStatuses.has(row.status) && row.status !== 'UNKNOWN') ||
+        (row.deferred_until !== undefined && row.deferred_until !== deferredChecks.get(row.id))) {
+      throw new Error('Unexpected fields in a public Part 12 row');
+    }
+    if (!Array.isArray(row.evidence) || !row.evidence.length || !row.evidence.every(isPublicEvidenceUrl)) {
+      throw new Error('Use public HTTPS evidence without credentials or a query for ' + row.id);
+    }
+    if (row.reason != null) {
+      content(row.reason, 'public reason for ' + row.id);
+      if (localPath.test(row.reason)) throw new Error('Local paths are not public Part 12 reasons for ' + row.id);
+    }
   }
 }
 
@@ -171,6 +206,11 @@ async function main() {
     verifyWorkflowRun(JSON.parse(readFileSync(0, 'utf8')), { role, revision, id });
     return;
   }
+  if (mode === 'public-report' && args.length === 1) {
+    validatePublicPart12Report(JSON.parse((await readFile(args[0], 'utf8')).replace(/^\uFEFF/, '')));
+    console.log('Public Part 12 evidence references verified');
+    return;
+  }
   if (mode === 'gate' && args.length === 4) {
     const [reportFile, tag, revision, packageSha256] = args;
     const { ids } = await loadCatalog();
@@ -179,7 +219,7 @@ async function main() {
     console.log('Part 12 gate verified ' + passed + ' check rows for ' + tag);
     return;
   }
-  throw new Error('Use release-policy.mjs catalog, draft MANIFEST, run ROLE COMMIT RUN_ID or gate REPORT TAG COMMIT PACKAGE_SHA256');
+  throw new Error('Use release-policy.mjs catalog, draft MANIFEST, run ROLE COMMIT RUN_ID, public-report REPORT or gate REPORT TAG COMMIT PACKAGE_SHA256');
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) await main();

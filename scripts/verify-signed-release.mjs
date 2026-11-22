@@ -3,7 +3,7 @@ import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { bootstrapName, candidateDeliveryFiles, canonical, commitFormat, fileDigest, manifestDomain, manifestFor, packageName, stableVersion } from './release-format.mjs';
-import { gate, loadCatalog } from './release-policy.mjs';
+import { gate, loadCatalog, validatePublicPart12Report } from './release-policy.mjs';
 
 const hexDigest = /^[0-9a-f]{64}$/;
 
@@ -65,7 +65,7 @@ export function completeSignedReport(report, verification, ids, runUrl) {
   const completed = {
     ...report,
     checks: report.checks.map(row => row.id === 'REL-06' ? {
-      id: row.id, status: 'PASS', evidence: [runUrl + ' (forge-signed-release-review/signed-verification.json)'], reason: null,
+      id: row.id, status: 'PASS', evidence: [runUrl], reason: null,
     } : row),
   };
   gate(completed, verification, ids, { phase: 'signed-artifact' });
@@ -84,7 +84,9 @@ async function main() {
   const verification = await verifySignedRelease(directory, approval, process.env.FORGE_RELEASE_PUBLIC_KEY_HEX);
   const report = JSON.parse(await readFile(path.join(directory, 'known-problems-report.json'), 'utf8'));
   const { ids } = await loadCatalog();
-  const completed = canonical(completeSignedReport(report, verification, ids, 'https://github.com/psewdon1m/forge/actions/runs/' + runId));
+  const signedReport = completeSignedReport(report, verification, ids, 'https://github.com/psewdon1m/forge/actions/runs/' + runId);
+  validatePublicPart12Report(signedReport);
+  const completed = canonical(signedReport);
   await mkdir(outputDirectory);
   await writeFile(path.join(outputDirectory, 'signed-phase-report.json'), completed, { flag: 'wx' });
   await writeFile(path.join(outputDirectory, 'signed-verification.json'), canonical({

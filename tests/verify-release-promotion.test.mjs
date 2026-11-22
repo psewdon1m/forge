@@ -111,6 +111,10 @@ test('qualification binds Windows standard-user results to the exact installed e
   }
   delete accepted.checks.manualRollback;
   assert.throws(() => validateWindowsQualification(accepted, verification, releaseId), /manualRollback/);
+  assert.throws(() => validateWindowsQualification({ ...windowsReceipt(), localReport: 'C:/Users/example' }, verification, releaseId), /Unexpected fields/);
+  const privateLink = windowsReceipt();
+  privateLink.checks.manualRollback.evidence = 'https://localhost/log';
+  assert.throws(() => validateWindowsQualification(privateLink, verification, releaseId), /manualRollback/);
 });
 
 test('publication and external evidence close only the deferred Part 12 rows at their assigned phase', () => {
@@ -131,7 +135,7 @@ test('publication and external evidence close only the deferred Part 12 rows at 
   assert.doesNotThrow(() => validatePromotionReports(final, signedBytes, verified, ids));
   assert.throws(() => validatePromotionReports(signed, signedBytes, verified, ids), /REL-09, REL-12, TRUST-03/);
   assert.throws(() => validatePromotionReports(final, Buffer.from('changed report'), verified, ids), /digest changed/);
-  final.checks[0].evidence = ['different evidence'];
+  final.checks[0].evidence = ['https://github.com/psewdon1m/forge/actions/runs/1400'];
   assert.throws(() => validatePromotionReports(final, signedBytes, verified, ids), /approved Part 12 row changed/);
 });
 

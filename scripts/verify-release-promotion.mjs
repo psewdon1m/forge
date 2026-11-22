@@ -5,7 +5,7 @@ import path from 'node:path';
 import { setTimeout } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import { bootstrapName, canonical, commitFormat, fileDigest, packageName, releaseBase, signedDeliveryFiles, stableVersion } from './release-format.mjs';
-import { gate, loadCatalog } from './release-policy.mjs';
+import { gate, isPublicEvidenceUrl, loadCatalog, validatePublicPart12Report } from './release-policy.mjs';
 
 const repository = 'psewdon1m/forge';
 const apiPath = `repos/${repository}`;
@@ -21,6 +21,8 @@ const checks = [
   'backupAndRestore', 'automaticRollback', 'interruptedActivationRecovery', 'manualRollback',
   'interruptedRollbackRecovery', 'registeredDocxAndPdfEditors',
 ];
+const windowsFields = new Set(['schemaVersion', 'profile', 'platform', 'windowsBuild', 'releaseId', 'tag',
+  'revision', 'packageSha256', 'setupSha256', 'checks']);
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const readJson = async file => JSON.parse(await readFile(file, 'utf8'));
 
@@ -47,8 +49,10 @@ export function validatePromotionReports(report, signedReport, verification, ids
   if (digest(signedReport) !== verification.signedReportSha256) throw new Error('Signed-phase report digest changed');
   const signed = JSON.parse(signedReport);
   gate(signed, verification, ids, { phase: 'signed-artifact' });
+  validatePublicPart12Report(signed);
   const rows = new Map(signed.checks.map(row => [row.id, row]));
   gate(report, verification, ids, { phase });
+  validatePublicPart12Report(report);
   for (const row of report.checks) {
     const approved = rows.get(row.id);
     const mayComplete = approved.status === 'UNKNOWN' && publicationRows.get(row.id) === approved.deferred_until &&
@@ -64,10 +68,13 @@ export function validateWindowsQualification(receipt, verification, releaseId) {
       receipt.packageSha256 !== verification.packageSha256 || receipt.setupSha256 !== verification.setupSha256) {
     throw new Error('Windows qualification does not match the exact immutable release and Windows standard-user profile');
   }
+  if (Object.keys(receipt).some(key => !windowsFields.has(key)) ||
+      Object.keys(receipt.checks ?? {}).some(key => !checks.includes(key))) {
+    throw new Error('Unexpected fields in the public Windows qualification');
+  }
   for (const name of checks) {
     const check = receipt.checks?.[name];
-    const link = typeof check?.evidence === 'string' && check.evidence.length <= 500 && URL.parse(check.evidence);
-    if (check?.status !== 'PASS' || !link || link.protocol !== 'https:' || link.username || link.password || link.search) {
+    if (check?.status !== 'PASS' || !isPublicEvidenceUrl(check.evidence) || Object.keys(check).length !== 2) {
       throw new Error('Missing Windows standard-user qualification: ' + name);
     }
   }

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { catalog, draftReport, gate, verifyWorkflowRun } from '../scripts/release-policy.mjs';
+import { catalog, draftReport, gate, validatePublicPart12Report, verifyWorkflowRun } from '../scripts/release-policy.mjs';
 import { matchQualifiedRef } from '../scripts/qualified-release-ref.mjs';
 
 const commit = 'a'.repeat(40);
@@ -64,6 +64,25 @@ test('candidate and review run IDs bind to different workflow events on the exac
     { head_sha: 'b'.repeat(40) }, { head_repository: { full_name: 'fork/forge' } },
     { status: 'in_progress' }, { conclusion: 'failure' },
   ]) assert.throws(() => verifyWorkflowRun({ ...reviewed, ...override }, { ...expected, role: 'review' }), /expected workflow/);
+});
+
+test('public reports reject local receipts, fields and paths before they enter the delivery', () => {
+  const id = 'REL-12';
+  const base = draftReport(subjects, new Set([id]));
+  const row = { id, status: 'N/A', reason: 'The release has no public predecessor.', evidence: ['https://github.com/psewdon1m/forge/releases'] };
+  const review = { ...base, checks: [row] };
+  assert.doesNotThrow(() => validatePublicPart12Report(review));
+  for (const invalid of [
+    'evidence.json', '.history/forge/verification.json', 'C:/Users/Owner/test.json', 'file:///tmp/verification.json',
+    'https://localhost/verification', 'https://anything.local/test', 'https://127.0.0.1/test',
+    'https://[::1]/test', 'https://someone@github.com/test', 'https://github.com/test?private=data',
+    'https://github.com/test (extra file path)',
+  ]) {
+    assert.throws(() => validatePublicPart12Report({ ...review, checks: [{ ...row, evidence: [invalid] }] }), /public HTTPS evidence/);
+  }
+  assert.throws(() => validatePublicPart12Report({ ...review, rawLog: 'private' }), /Unexpected fields/);
+  assert.throws(() => validatePublicPart12Report({ ...review, checks: [{ ...row, localLog: 'private' }] }), /Unexpected fields/);
+  assert.throws(() => validatePublicPart12Report({ ...review, checks: [{ ...row, reason: 'Log under C:\\Users\\Owner\\QA' }] }), /Local paths/);
 });
 test('only explicit evidence deferred to its legitimate phase can pass an earlier gate', () => {
   const checks = new Map([
