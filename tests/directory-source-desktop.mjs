@@ -21,8 +21,7 @@ async function launch() {
     executablePath, args: [root],
     env: { ...process.env, FORGE_QUALIFICATION: '1', FORGE_QUALIFICATION_DATA: profile },
   });
-  await app.evaluate(({ BrowserWindow, dialog }, directory) => {
-    BrowserWindow.getAllWindows()[0].webContents.setBackgroundThrottling(false);
+  await app.evaluate(({ dialog }, directory) => {
     dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [directory] });
   }, project);
   return app;

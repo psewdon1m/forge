@@ -18,9 +18,8 @@ async function launch() {
     executablePath, args: [root],
     env: { ...process.env, FORGE_QUALIFICATION: '1', FORGE_QUALIFICATION_DATA: profile },
   });
-  await app.evaluate(({ BrowserWindow, dialog }, directory) => {
+  await app.evaluate(({ dialog }, directory) => {
     globalThis.palettePicker = [];
-    BrowserWindow.getAllWindows()[0].webContents.setBackgroundThrottling(false);
     dialog.showOpenDialog = async (_owner, options) => ({
       canceled: false, filePaths: options.properties.includes('openDirectory') ? [directory] : globalThis.palettePicker,
     });
