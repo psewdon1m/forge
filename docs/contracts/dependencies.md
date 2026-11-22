@@ -22,7 +22,7 @@ The checked-in npm and Cargo lockfiles constrain development builds. The Windows
 | png | 0.18.1 | MIT OR Apache-2.0 | Inspect PNG color chunks for Palette using the same pinned codec as image |
 | zip / quick-xml | 9.8.1 / 0.42.0 | MIT | Bounded DOCX package and XML validation |
 | serde / serde_json | 1.0.228 / 1.0.149 | MIT OR Apache-2.0 | Project data and protocol |
-| url | 2.5.8 | MIT OR Apache-2.0 | Canonical HTTPS reference validation in Core, with IDNA and ICU data pinned in Cargo.lock |
+| url | 2.5.9 | MIT OR Apache-2.0 | Canonical HTTPS reference validation in Core, with IDNA and ICU data pinned in Cargo.lock |
 | ed25519-dalek / semver | 2.2.0 / 1.0.27 | BSD-3-Clause / MIT OR Apache-2.0 | Native release signature verification and ordering of signed Stable versions |
 | ureq / rustls | 3.5.2 / 0.23.46 | MIT OR Apache-2.0 / Apache-2.0 OR ISC OR MIT | Bounded HTTPS in the update helper, with WebPKI roots and locked TLS dependencies |
 | httpdate | 1.0.3 | MIT OR Apache-2.0 | Parse the standard HTTP-date form of Retry-After in the native updater |
