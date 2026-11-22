@@ -68,6 +68,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Gallery video playback, Palette filtering and restore verification failed.' }
     node tests/git-desktop.mjs
     if ($LASTEXITCODE -ne 0) { throw 'Git working tree status, review, mutations and restore verification failed.' }
+    node tests/directory-core-windows.mjs
+    if ($LASTEXITCODE -ne 0) { throw 'Directory filesystem version and mutation verification failed.' }
     $release = @('tests/release-windows.mjs', '--updates', '--committed')
     if ($Docker) { $release += '--docker' }
     node @release --candidate-target --manual-rollback

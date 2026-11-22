@@ -35,7 +35,7 @@ pub(crate) fn file_collection(root: &Dir) -> Result<FileCollection> {
     let mut files = Vec::new();
     let mut unavailable = Vec::new();
     while let Some(folder) = folders.pop() {
-        for entry in list(root, &folder)?.entries {
+        for entry in list_entries(root, &folder, VersionBasis::Metadata)?.entries {
             visited += 1;
             if visited > MAX_COLLECTION_ENTRIES {
                 return Err(Error::Invalid(
@@ -193,14 +193,24 @@ pub(crate) fn fingerprint_regular(file: &cap_std::fs::File) -> Result<(u64, Stri
     windows::fingerprint_regular(file)
 }
 
+#[derive(Clone, Copy)]
+enum VersionBasis {
+    Metadata,
+    Mutation,
+}
+
 pub(crate) fn list(root: &Dir, folder: &[String]) -> Result<DirectoryListing> {
+    list_entries(root, folder, VersionBasis::Mutation)
+}
+
+fn list_entries(root: &Dir, folder: &[String], basis: VersionBasis) -> Result<DirectoryListing> {
     #[cfg(windows)]
     {
-        windows::list(root, folder)
+        windows::list(root, folder, basis)
     }
     #[cfg(not(windows))]
     {
-        let _ = (root, folder);
+        let _ = (root, folder, basis);
         Err(crate::Error::Invalid("Project Directory requires Windows"))
     }
 }

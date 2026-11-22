@@ -13,13 +13,19 @@ use windows_sys::Win32::{
     Storage::FileSystem::{
         BY_HANDLE_FILE_INFORMATION, DELETE, FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_REPARSE_POINT,
         FILE_BASIC_INFO, FILE_DISPOSITION_INFO, FILE_FLAG_BACKUP_SEMANTICS, FILE_READ_ATTRIBUTES,
-        FILE_RENAME_INFO, FILE_SHARE_READ, FILE_SHARE_WRITE, FileBasicInfo, FileDispositionInfo,
-        FileRenameInfo, GetFileInformationByHandle, GetFileInformationByHandleEx,
-        GetFinalPathNameByHandleW, SetFileInformationByHandle,
+        FILE_RENAME_INFO, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, FileBasicInfo,
+        FileDispositionInfo, FileRenameInfo, GetFileInformationByHandle,
+        GetFileInformationByHandleEx, GetFinalPathNameByHandleW, SetFileInformationByHandle,
+    },
+    System::{
+        IO::DeviceIoControl,
+        Ioctl::{FSCTL_READ_FILE_USN_DATA, READ_FILE_USN_DATA, USN_RECORD_V2, USN_RECORD_V3},
     },
 };
 
-use super::{DirectoryChange, DirectoryEntry, DirectoryFile, DirectoryListing, EntryKind};
+use super::{
+    DirectoryChange, DirectoryEntry, DirectoryFile, DirectoryListing, EntryKind, VersionBasis,
+};
 use crate::{Error, Result};
 
 const MAX_COMPONENT: usize = 240;
@@ -224,7 +230,73 @@ pub(super) fn fingerprint_regular(file: &File) -> Result<(u64, String)> {
     Ok((info.bytes, info.version))
 }
 
-pub(super) fn list(root: &Dir, components: &[String]) -> Result<DirectoryListing> {
+fn change_sequence(handle: HANDLE) -> Option<i64> {
+    let version = READ_FILE_USN_DATA {
+        MinMajorVersion: 2,
+        MaxMajorVersion: 3,
+    };
+    let mut record = [0u8; 1024];
+    let mut length = 0;
+    // A synchronous control call reads the last journal sequence for this open entry.
+    if unsafe {
+        DeviceIoControl(
+            handle,
+            FSCTL_READ_FILE_USN_DATA,
+            (&raw const version).cast(),
+            size_of::<READ_FILE_USN_DATA>() as u32,
+            record.as_mut_ptr().cast(),
+            record.len() as u32,
+            &mut length,
+            std::ptr::null_mut(),
+        )
+    } == 0
+    {
+        return None;
+    }
+    let record = record.get(..length as usize)?;
+    let offset = match u16::from_le_bytes(record.get(4..6)?.try_into().ok()?) {
+        2 => offset_of!(USN_RECORD_V2, Usn),
+        3 => offset_of!(USN_RECORD_V3, Usn),
+        _ => return None,
+    };
+    let sequence = i64::from_le_bytes(record.get(offset..offset + 8)?.try_into().ok()?);
+    (sequence > 0).then_some(sequence)
+}
+
+fn mutation_metadata(parent: &Dir, name: &str, file: &File) -> Result<Metadata> {
+    let mut meta = inspect(file.as_raw_handle())?;
+    if meta.kind != EntryKind::File {
+        return Ok(meta);
+    }
+    let mut fingerprint = Sha256::new();
+    if let Some(sequence) = change_sequence(file.as_raw_handle()) {
+        fingerprint.update(b"forge.directory.mutation.usn.v1");
+        fingerprint.update(sequence.to_le_bytes());
+    } else {
+        // The first handle pins the name. A second handle denies writers during the read
+        // and shares DELETE so it can coexist with our own mutation handle.
+        let mut reader = open_entry(
+            parent,
+            name,
+            GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_DELETE,
+        )?;
+        meta = inspect(reader.as_raw_handle())?;
+        fingerprint.update(b"forge.directory.mutation.content.v1");
+        if io::copy(&mut reader, &mut fingerprint)? != meta.bytes {
+            return Err(Error::DirectoryChanged);
+        }
+    }
+    fingerprint.update(meta.version.as_bytes());
+    meta.version = format!("{:x}", fingerprint.finalize());
+    Ok(meta)
+}
+
+pub(super) fn list(
+    root: &Dir,
+    components: &[String],
+    basis: VersionBasis,
+) -> Result<DirectoryListing> {
     let folder = Folder::open(root, components)?;
     let current = folder.current();
     let mut entries = Vec::new();
@@ -243,8 +315,13 @@ pub(super) fn list(root: &Dir, components: &[String]) -> Result<DirectoryListing
             .to_str()
             .ok_or(Error::Invalid("Unsupported filename encoding"))
             .and_then(|name| component(name, components.is_empty()))
-            .and_then(|()| open_entry(current, &name, FILE_READ_ATTRIBUTES, SHARE_STABLE_NAME))
-            .and_then(|file| inspect(file.as_raw_handle()));
+            .and_then(|()| {
+                let file = open_entry(current, &name, FILE_READ_ATTRIBUTES, SHARE_STABLE_NAME)?;
+                match basis {
+                    VersionBasis::Metadata => inspect(file.as_raw_handle()),
+                    VersionBasis::Mutation => mutation_metadata(current, &name, &file),
+                }
+            });
         entries.push(match metadata {
             Ok(meta) => DirectoryEntry {
                 name,
@@ -338,7 +415,7 @@ fn mutation_source(folder: &Dir, name: &str, version: &str, at_root: bool) -> Re
     if at_root {
         check_root_entry(file.as_raw_handle())?;
     }
-    check_version(&inspect(file.as_raw_handle())?, version)?;
+    check_version(&mutation_metadata(folder, name, &file)?, version)?;
     Ok(file)
 }
 

@@ -502,6 +502,17 @@ function closeFixtureWindows() {
 let app;
 let originalProcess;
 
+async function hideFixtureWindow() {
+  const page = await app.firstWindow({ timeout: 30_000 });
+  const window = await app.browserWindow(page);
+  await window.evaluate(browserWindow => {
+    browserWindow.hide();
+    browserWindow.webContents.setBackgroundThrottling(false);
+  });
+  await window.dispose();
+  return page;
+}
+
 async function reopenFixture(record, env) {
   closeFixtureWindows();
   await expect.poll(() => isFixtureSlotRunning(record), { timeout: 15_000 }).toBe(false);
@@ -510,12 +521,7 @@ async function reopenFixture(record, env) {
     env: { ...env, FORGE_INSTALLATION_ROOT: installation },
   });
   originalProcess = app.process();
-  await app.evaluate(({ BrowserWindow }) => {
-    const window = BrowserWindow.getAllWindows()[0];
-    window.hide();
-    window.webContents.setBackgroundThrottling(false);
-  });
-  const window = await app.firstWindow();
+  const window = await hideFixtureWindow();
   await expect(window.locator('.version')).toHaveText(record.version + ' · Stable');
   return window;
 }
@@ -749,10 +755,8 @@ try {
     },
   });
   originalProcess = app.process();
-  await app.evaluate(({ BrowserWindow, dialog, session }, { dir, videoFiles }) => {
-    const window = BrowserWindow.getAllWindows()[0];
-    window.hide();
-    window.webContents.setBackgroundThrottling(false);
+  await app.evaluate(async ({ app, dialog, session }, { dir, videoFiles }) => {
+    await app.whenReady();
     dialog.showOpenDialog = async (_owner, options) => ({
       canceled: false,
       filePaths: options.properties.includes('multiSelections') && videoFiles.length ? videoFiles : [dir],
@@ -760,7 +764,7 @@ try {
     session.defaultSession.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*'] },
       (_details, callback) => callback({ cancel: true }));
   }, { dir: project, videoFiles });
-  const window = await app.firstWindow();
+  const window = await hideFixtureWindow();
   await expect(window.locator('.version')).toHaveText(active.version + ' · Stable');
   await window.getByRole('button', { name: 'Projects', exact: true }).click();
   await window.getByLabel('Project name').fill('Installed Forge smoke');
