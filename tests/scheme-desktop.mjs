@@ -121,11 +121,20 @@ try {
   await panel.getByLabel('Connection text').fill('Key light');
 
   const camera = shapes.filter({ hasText: 'Main camera' });
+  const pickup = { x: 60, y: 18 };
+  await camera.hover({ position: pickup });
   const shapeBox = await camera.boundingBox();
-  await page.mouse.move(shapeBox.x + 60, shapeBox.y + 18);
+  assert.ok(shapeBox, 'The camera must be visible before dragging');
+  const start = { x: shapeBox.x + pickup.x, y: shapeBox.y + pickup.y };
   await page.mouse.down();
-  await page.mouse.move(shapeBox.x + 79, shapeBox.y + 40, { steps: 7 });
-  await page.mouse.up();
+  try {
+    // React Flow begins the drag after the movement threshold is crossed.
+    await page.mouse.move(start.x + 3, start.y + 3);
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
+    await page.mouse.move(start.x + 22, start.y + 25);
+  } finally {
+    await page.mouse.up();
+  }
   await expect(button(panel, 'Open Scheme JSON')).toBeDisabled();
   await expect(button(panel, 'Export Scheme JSON')).toBeDisabled();
   await button(page, 'Back to Space').click();
@@ -138,14 +147,21 @@ try {
   assert.deepEqual(preCamera.lines.map(line => [line.route, line.text]), [['orthogonal', 'Key light'], ['straight', '']]);
   const preCameraGraph = value(await invoke(page, 'schemeGraph', query));
 
-  const stageBox = await stage.boundingBox();
-  const panStart = { x: stageBox.x + stageBox.width - 110, y: stageBox.y + 65 };
-  assert.equal(await page.evaluate(({ x, y }) =>
-    Boolean(document.elementFromPoint(x, y)?.closest('.react-flow__pane')), panStart), true);
-  await page.mouse.move(panStart.x, panStart.y);
+  const pane = stage.locator('.react-flow__pane');
+  const initialPaneBox = await pane.boundingBox();
+  assert.ok(initialPaneBox, 'The Scheme canvas must be visible before panning');
+  const panOrigin = { x: initialPaneBox.width - 110, y: 65 };
+  await pane.hover({ position: panOrigin });
+  const paneBox = await pane.boundingBox();
+  assert.ok(paneBox);
+  const panStart = { x: paneBox.x + panOrigin.x, y: paneBox.y + panOrigin.y };
   await page.mouse.down({ button: 'middle' });
-  await page.mouse.move(panStart.x + 23, panStart.y + 20, { steps: 7 });
-  await page.mouse.up({ button: 'middle' });
+  try {
+    await page.mouse.move(panStart.x + 23, panStart.y + 20);
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(resolve)));
+  } finally {
+    await page.mouse.up({ button: 'middle' });
+  }
   await expect(button(panel, 'Save scheme')).toBeEnabled();
   await save(panel);
   const afterPan = readScheme((await view(page)).space, nodeId).viewport;
