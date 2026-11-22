@@ -51,6 +51,8 @@ jobs:
         run: node tests/scheme-desktop.mjs
       - name: Verify Site navigation, profile separation, downloads and saved references
         run: node tests/site-desktop.mjs
+      - name: Verify Site session persistence in a long Windows profile path
+        run: node tests/site-desktop.mjs --long-profile
       - name: Verify Research captures, citations and project restore
         run: node tests/research-desktop.mjs
       - name: Verify Research transcription approval, cancellation and restore

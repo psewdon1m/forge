@@ -50,6 +50,8 @@ try {
         Copy-Item -LiteralPath 'target/release/forge-core.exe' -Destination '.local/bin/forge-core.exe'
     }
     & (Join-Path $PSScriptRoot 'verify.ps1') -Suite All
+    node tests/site-desktop.mjs --long-profile
+    if ($LASTEXITCODE -ne 0) { throw 'Site session persistence in a long Windows profile path failed.' }
     node tests/research-desktop.mjs
     if ($LASTEXITCODE -ne 0) { throw 'Research source provenance and project restore verification failed.' }
     node tests/research-transcription-desktop.mjs

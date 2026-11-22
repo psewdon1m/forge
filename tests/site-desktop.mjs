@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash, X509Certificate } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, stat, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:https';
 import { once } from 'node:events';
 import path from 'node:path';
@@ -16,7 +16,12 @@ const run = await mkdtemp(path.join(parent, 'site-ui-'));
 const project = path.join(run, 'Project');
 const savedDownload = path.join(run, 'lighting.txt');
 const archive = path.join(run, 'Lighting.zip');
-await mkdir(project);
+const useLongProfile = process.argv.includes('--long-profile');
+const profileName = useLongProfile
+  ? 'Profile'.padEnd(174 - run.length - 1, 'p')
+  : 'Profile';
+const profileDirectory = path.join(run, profileName);
+await Promise.all([mkdir(project), mkdir(profileDirectory)]);
 const chromeScreenshot = path.join(run, 'site-chrome.png');
 const pageScreenshot = path.join(run, 'site-page.png');
 const keyPath = path.join(run, 'fixture-key.pem');
@@ -85,7 +90,7 @@ async function launch() {
   const app = await _electron.launch({
     executablePath, args: [root],
     env: {
-      ...process.env, FORGE_QUALIFICATION: '1', FORGE_QUALIFICATION_DATA: path.join(run, 'Profile'),
+      ...process.env, FORGE_QUALIFICATION: '1', FORGE_QUALIFICATION_DATA: profileDirectory,
       FORGE_FIXTURE_ORIGIN: origin, FORGE_FIXTURE_CERTIFICATE_FINGERPRINT: fingerprint,
     },
   });
@@ -116,6 +121,12 @@ function native(app, expression, userGesture = false) {
 }
 
 const account = app => native(app, 'document.querySelector("#account")?.textContent ?? null');
+const siteStorage = app => app.evaluate(({ BrowserWindow }) => {
+  const window = BrowserWindow.getAllWindows().find(item => !item.getParentWindow());
+  const browser = window.contentView.children.find(child => child.webContents && child.webContents !== window.webContents);
+  return browser.webContents.session.storagePath;
+});
+
 async function clickLink(app, href) {
   const selector = JSON.stringify('a[href="' + href + '"]');
   await native(app, 'document.querySelector(' + selector + ').click()', true);
@@ -149,6 +160,7 @@ async function capture(app, page) {
 
 let app;
 let firstId;
+let firstPlainId;
 let secondId;
 let projectId;
 try {
@@ -158,7 +170,7 @@ try {
   await page.getByLabel('Project name').fill('Studio lighting reference');
   await button(page, 'Create project').click();
   await button(page, 'Add Site').click();
-  ({ space: { projectId, nodes: [{ id: firstId }] } } = await view(page));
+  ({ space: { projectId, nodes: [{ id: firstId, content: { plainId: firstPlainId } }] } } = await view(page));
   assert.equal(await account(app), null);
   await button(page, 'Open Site').click();
   await go(page, origin + '/?source=fixture#dev-only');
@@ -237,6 +249,7 @@ try {
   assert.doesNotMatch(stored, /token|private|lighting_session/);
   await go(page, reference.url);
   await expect(page.getByText('Page loaded.', { exact: true })).toBeVisible();
+  const firstStore = await siteStorage(app);
   await capture(app, page);
   await button(page, 'Back to Space').click();
   await expect.poll(() => account(app)).toBe(null);
@@ -256,12 +269,22 @@ try {
   await expect(page.getByText(/Sign-in window closed/)).toBeVisible();
   await app.close();
 
+  const legacyStore = path.join(profileDirectory, 'Partitions', 'forge-site-' + projectId + '-' + firstPlainId);
+  if (useLongProfile) {
+    assert.ok(path.join(legacyStore, 'Cookies-journal').length >= 260);
+    assert.equal(path.dirname(firstStore), path.join(profileDirectory, 'Sites'));
+    await mkdir(path.dirname(legacyStore), { recursive: true });
+    await rename(firstStore, legacyStore);
+  }
+
   app = await launch();
   page = await app.firstWindow();
   await button(page, 'Projects').click();
   await button(page, 'Studio lighting reference').click();
   await openExisting(page, firstId);
   await expect.poll(() => account(app)).toBe('Signed in');
+  assert.equal(await siteStorage(app), firstStore);
+  if (useLongProfile) await assert.rejects(stat(legacyStore), { code: 'ENOENT' });
   await page.getByText('Saved reference', { exact: true }).click();
   await expect(page.getByText('Проверить баланс белого.', { exact: false })).toBeVisible();
   await app.evaluate(() => { globalThis.forgeSiteConfirm = 0; });
@@ -306,7 +329,9 @@ try {
   const archiveBytes = await readFile(archive);
   assert.doesNotMatch(archiveBytes.toString('latin1'), /lighting_session|synthetic-do-not-store/);
   console.log(JSON.stringify({
-    outcome: 'PASS', run, chromeScreenshot, pageScreenshot, nativeViewMountedOnlyInPlain: true,
+    outcome: 'PASS', run, profilePathLength: profileDirectory.length, migratedLongProfile: useLongProfile,
+    chromeScreenshot, pageScreenshot,
+    nativeViewMountedOnlyInPlain: true,
     backForwardReload: true, forbiddenRedirect: true, offlineAndExpiredVisible: true, approvedSignInWindow: true,
     profilesPersistAndClearIndividually: true, checkedDownloadBytesAndMark: true, refusedUnknownAndOversized: true,
     canceledAndOccupiedDestinationPreserved: true, sanitizedReferenceRoundTrip: true, frameworkIsolated: true,

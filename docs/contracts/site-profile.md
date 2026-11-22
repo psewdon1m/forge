@@ -12,6 +12,8 @@ Site is a sandboxed Electron `WebContentsView` alongside the trusted local rende
 
 Chromium persists a distinct session partition for each project ID and Site Plain ID under Forge's application data. Reopening the same card reuses its profile. Copying a card changes the Plain ID. Restoring a project as a copy changes the project ID. Both operations open independent profiles. **Clear site data** asks for confirmation, closes the active view and the sign-in window, terminates connections, clears Chromium data and clears the HTTP authentication cache for that profile. A new navigation is explicit. Server-side account sessions are managed by the website. [Electron Session API](https://www.electronjs.org/docs/latest/api/session#sescleardataoptions).
 
+On Windows, Forge uses a shorter directory within the same application data when the default Site path would exceed Chromium's cookie journal limit. An existing affected directory moves to the shorter path the first time the card opens. The card and its login window use the same session. [Electron Session API](https://www.electronjs.org/docs/latest/api/session#sessionfrompathpath-options).
+
 ## Sign-in windows and downloads
 
 A page request to open a window is intercepted. Forge shows the requested origin and offers **Open sign-in window** or **Dismiss window request**. The approved window uses the same Site profile, stays sandboxed, disables nested windows and displays its current HTTPS origin in the native title. Closing it prompts the user to reload and verify the session. The supported flow shares browser session data. Some identity providers require the opener connection or forbid embedded browsers. Qualification on a deployment's actual identity provider is separate.
@@ -21,5 +23,7 @@ For a Site download, Forge checks the initiator against the active page origin a
 ## Qualification
 
 Run `node tests/site-desktop.mjs` after building the UI and Core. It exercises the product controls on a Windows desktop against a synthetic loopback TLS server, including profile restart, logout isolation, approved popup, approved downloads, failure states and references. The fixture certificate override exists only in an unpackaged qualification run and verifies the exact certificate fingerprint for loopback.
+
+Run `node tests/site-desktop.mjs --long-profile` to exercise the same controls under a long Windows profile path. The test also verifies that Forge reopens an existing session from the previous directory layout.
 
 Run `node tests/shooting-project-windows.mjs` to generate a project and a verified ZIP under `.local/qualification/shooting-project-*/`. The ZIP opens through **Settings → Backup**. The fixture includes synthetic lighting plates, Checklist, Scheme, Dataset, a Site reference, a call sheet and the versioned Gallery, Palette and Metadata scenario. It checks that cancellation leaves the last successful result available and that restored analyses still reference the exact input versions.

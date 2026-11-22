@@ -1445,7 +1445,7 @@ async function openQualificationSite(url, siteId) {
   const profile = session.fromPartition(partition);
   denySitePermissions(profile);
   useFixtureCertificate(profile);
-  site = new WebContentsView(siteViewOptions(partition));
+  site = new WebContentsView(siteViewOptions(profile));
   const { webContents } = site;
   const constrainNavigation = (event, targetUrl) => {
     const destination = allowedSiteUrl(typeof targetUrl === 'string' ? targetUrl : targetUrl.url);

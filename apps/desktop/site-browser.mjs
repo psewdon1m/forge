@@ -1,9 +1,27 @@
-import { BrowserWindow, WebContentsView, dialog, session } from 'electron';
+import { app, BrowserWindow, WebContentsView, dialog, session } from 'electron';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, renameSync } from 'node:fs';
+import path from 'node:path';
 import { allowedSiteUrl, clearSiteSession, denySitePermissions, siteReference, siteViewOptions } from './site-policy.mjs';
 import { SiteDownloads } from './site-downloads.mjs';
 
 const clearing = new Set();
 const externalError = 'Only HTTPS pages without embedded credentials can open in Site.';
+
+function openSiteSession(partition) {
+  if (process.platform !== 'win32') return session.fromPartition(partition);
+  const sessionData = app.getPath('sessionData');
+  const previous = path.join(sessionData, 'Partitions', partition.slice('persist:'.length));
+  // Chromium's Windows cookie store can fall back to the partition root, but its SQLite journal still needs a path below MAX_PATH.
+  if (path.join(previous, 'Cookies-journal').length < 260) return session.fromPartition(partition);
+  const key = createHash('sha256').update(partition).digest('hex').slice(0, 32);
+  const compact = path.join(sessionData, 'Sites', key);
+  if (!existsSync(compact) && existsSync(previous)) {
+    mkdirSync(path.dirname(compact), { recursive: true });
+    renameSync(previous, compact);
+  }
+  return session.fromPath(compact);
+}
 
 function navigationFailure(code, description) {
   if (code === -106 || code === -102 || code === -105 || code === -109 || code === -118) {
@@ -32,8 +50,8 @@ export class SiteBrowser {
   constructor(window, { projectId, plainId, profileDirectory, configureTestCertificate, update }) {
     this.#window = window;
     this.#partition = 'persist:forge-site-' + projectId + '-' + plainId;
-    this.#profile = session.fromPartition(this.#partition);
     if (clearing.has(this.#partition)) throw new Error('Site is clearing');
+    this.#profile = openSiteSession(this.#partition);
     denySitePermissions(this.#profile);
     configureTestCertificate?.(this.#profile);
     this.#update = update;
@@ -106,7 +124,7 @@ export class SiteBrowser {
   }
 
   #makeView() {
-    const view = new WebContentsView(siteViewOptions(this.#partition));
+    const view = new WebContentsView(siteViewOptions(this.#profile));
     this.#view = view;
     const contents = view.webContents;
     const active = () => !this.#closed && this.#view === view;
@@ -184,7 +202,7 @@ export class SiteBrowser {
     const url = this.#candidate;
     this.#candidate = undefined;
     const popup = new BrowserWindow({
-      ...siteViewOptions(this.#partition),
+      ...siteViewOptions(this.#profile),
       parent: this.#window, modal: true, autoHideMenuBar: true,
       title: 'Forge Site sign-in', width: 780, height: 670,
       show: this.#window.isVisible(),

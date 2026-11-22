@@ -10,9 +10,10 @@ test('Site navigation requires HTTPS and excludes embedded credentials', () => {
   }
 });
 
-test('a Site partition has no Node integration or bridge preload', () => {
-  const { webPreferences: preferences } = siteViewOptions('persist:test');
-  assert.equal(preferences.partition, 'persist:test');
+test('a Site view uses the supplied isolated session with no Node integration or bridge preload', () => {
+  const profile = {};
+  const { webPreferences: preferences } = siteViewOptions(profile);
+  assert.equal(preferences.session, profile);
   assert.equal(preferences.nodeIntegration, false);
   assert.equal(preferences.contextIsolation, true);
   assert.equal(preferences.sandbox, true);

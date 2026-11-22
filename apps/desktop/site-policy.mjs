@@ -20,10 +20,10 @@ export function siteReference(address, pageTitle) {
   return { url: url.href, title: title || url.hostname };
 }
 
-export function siteViewOptions(partition) {
+export function siteViewOptions(profile) {
   return {
     webPreferences: {
-      partition,
+      session: profile,
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: true,
