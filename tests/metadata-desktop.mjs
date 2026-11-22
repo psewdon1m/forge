@@ -246,6 +246,12 @@ try {
   await expect(fields().getByText('Latitude', { exact: true })).toHaveCount(0);
   assert.deepEqual((await status(target2)).latest, full);
   assert.deepEqual((await status(target)).latest, second);
+  const resizeWindow = async (width, height) => {
+    await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setContentSize(...size), [width, height]);
+    await expect.poll(() => page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight })))
+      .toEqual({ width, height });
+  };
+  await resizeWindow(1440, 900);
   const table = result().getByRole('region', { name: 'Metadata table' });
   await expect(fields().getByText('Forge Camera', { exact: true })).toBeInViewport();
   const wideTable = await table.boundingBox();
@@ -277,8 +283,7 @@ try {
   });
   assert.ok(image.length > 1000);
   await writeFile(path.join(run, 'metadata.png'), Buffer.from(image, 'base64'));
-  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(760, 900));
-  await expect.poll(() => page.evaluate(() => window.innerWidth)).toBeLessThan(970);
+  await resizeWindow(760, 900);
   const narrowTable = await table.boundingBox();
   const narrowFields = await fields().boundingBox();
   assert.ok(narrowFields.y >= narrowTable.y + narrowTable.height, 'narrow window places fields below the table');
