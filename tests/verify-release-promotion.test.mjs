@@ -7,7 +7,8 @@ import test from 'node:test';
 import { bootstrapName, canonical, packageName, releaseBase, signedDeliveryFiles } from '../scripts/release-format.mjs';
 import { draftReport } from '../scripts/release-policy.mjs';
 import { completeSignedReport } from '../scripts/verify-signed-release.mjs';
-import { publishApprovedRelease, validatePromotionReports, validatePublicRelease, validateWindowsQualification, verifyFirstReleaseApplicability, verifyPublicDelivery } from '../scripts/verify-release-promotion.mjs';
+import { publishApprovedRelease, validatePromotionReports, validatePublicRelease, validateWindowsQualification, verifyPublicDelivery } from '../scripts/verify-release-promotion.mjs';
+import { verifyFirstReleaseApplicability } from '../scripts/release-policy.mjs';
 
 const digest = value => createHash('sha256').update(value).digest('hex');
 const version = '0.0.1';
@@ -145,7 +146,9 @@ test('the first-release exception requires live evidence that Forge has no publi
     assert.equal(url, 'https://api.github.com/repos/psewdon1m/forge/releases?per_page=100&page=1');
     return Response.json(releases);
   };
-  await verifyFirstReleaseApplicability(report, read([publicRelease()]));
+  assert.equal(await verifyFirstReleaseApplicability(report, read([])), true);
+  assert.equal(await verifyFirstReleaseApplicability(report, read([publicRelease()])), true);
+  await assert.rejects(verifyFirstReleaseApplicability(report, read([{}])), /Invalid public Forge release history/);
   await assert.rejects(verifyFirstReleaseApplicability(report, read([{ ...publicRelease(), prerelease: false }])), /published Stable release/);
   await assert.rejects(verifyFirstReleaseApplicability(report, async () => new Response('', { status: 403 })), /HTTP 403/);
 });

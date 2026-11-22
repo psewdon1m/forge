@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { bootstrapName, candidateDeliveryFiles, canonical, fileDigest, manifestFor, packageName } from './release-format.mjs';
-import { gate, loadCatalog, validatePublicPart12Report } from './release-policy.mjs';
+import { gate, loadCatalog, validatePublicPart12Report, verifyFirstReleaseApplicability } from './release-policy.mjs';
 
 const [delivery, reportFile, approvalDir, version, commitSha, runId] = process.argv.slice(2);
 if (process.argv.length !== 8 || !/^\d{1,20}$/.test(runId)) throw new Error('Expected candidate paths, version, commit and run');
@@ -37,7 +37,8 @@ if (provenance.predicate?.source?.commitSha !== commitSha || provenance.predicat
 }
 const { ids } = await loadCatalog();
 const report = JSON.parse(await readFile(reportFile, 'utf8'));
-gate(report, { tag: manifest.tag, revision: commitSha, packageSha256: manifest.artifact.sha256 }, ids, { phase: 'pre-signing' });
+const noStablePredecessor = await verifyFirstReleaseApplicability(report);
+gate(report, { tag: manifest.tag, revision: commitSha, packageSha256: manifest.artifact.sha256 }, ids, { phase: 'pre-signing', noStablePredecessor });
 validatePublicPart12Report(report);
 await mkdir(approvalDir);
 await copyFile(reportFile, path.join(approvalDir, 'known-problems-report.json'));

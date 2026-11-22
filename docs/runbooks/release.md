@@ -39,7 +39,7 @@ Run `./scripts/pre-push.ps1 -Base <base-sha> -Head <outgoing-sha>` from a clean 
 1. Review the outgoing diff and record the seven Part 06 areas for the exact revision. Protect `main` and qualified tags. Configure the repository variable `FORGE_RELEASE_PUBLIC_KEY_HEX` with the Ed25519 public anchor. Configure the `forge-release-signing` environment with reviewer protection, qualified tag restrictions and the protected `FORGE_RELEASE_SIGNING_KEY` PKCS#8 PEM. The protected step passes the PEM through standard input to the signer with the secret excluded from the signer process environment. [GitHub environments](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments).
 2. Confirm the version in `package.json`, both lockfiles, the workspace manifest, and release notes. Create `forge-v<version>` at the intended remote `main` commit. Run `node scripts/qualified-release-ref.mjs refs/tags/forge-v<version>` after pushing the checked tag to verify the remote and checkout. Plain `v<version>` tags run verification only.
 3. The qualified tag builds the ZIP once. The unprivileged Windows job verifies those bytes with a disposable test key and launcher. The candidate launcher and ZIP keep the production public anchor. Save the successful candidate run ID and SHA-256. Confirm rights for the distributed files and retain the licence evidence.
-4. Draft `known-problems-report.json` from the candidate's unsigned manifest. Review every active ID from the pinned catalog. Record verifiable evidence for PASS. For N/A, record the verified profile, relevant components and reason. Set REL-06 to `UNKNOWN` with `deferred_until` set to `signed-artifact`. Set REL-12 to `UNKNOWN` with `deferred_until` set to `pre-publication` when a published Stable predecessor exists. For the first `forge-v0.0.1`, use N/A with a public release-history reference proving that there is no published Stable predecessor. Set REL-09 and TRUST-03 to `UNKNOWN` with `deferred_until` set to `release-ready`. For each deferred row, give the reason and a public reference to the verification procedure. Keep only public evidence references in the report because it travels through a workflow input and into the release bundle.
+4. Draft `known-problems-report.json` from the candidate's unsigned manifest. Review every active ID from the pinned catalog. Record verifiable evidence for PASS. For N/A, record the verified profile, relevant components and reason. Set REL-06 to `UNKNOWN` with `deferred_until` set to `signed-artifact`. Set REL-12 to `UNKNOWN` with `deferred_until` set to `pre-publication` when a published Stable predecessor exists. For a first Stable release, use N/A with a public release-history reference. Every gate that accepts this exception checks that history for a published Forge Stable release. A candidate tag alone does not count as a published release. Set REL-09 and TRUST-03 to `UNKNOWN` with `deferred_until` set to `release-ready`. For each deferred row, give the reason and a public reference to the verification procedure. Keep only public evidence references in the report because it travels through a workflow input and into the release bundle.
 5. Dispatch **Record Forge candidate review** on the same qualified tag with the reviewed report and candidate run ID. Wait for a successful run with the `forge-known-problems-review` artifact. This read-only workflow validates the exact ZIP, provenance, smoke results and Part 12 pre-signing report.
 6. Dispatch **Prepare signed Forge release** on the same tag with the successful candidate and review run IDs. Its read-only gate checks the successful Verify workflow for the exact `main` commit. The protected signer redownloads the approved bytes, matches the key to the embedded anchor and creates the signed delivery. A separate read-only job verifies the detached signature, the approved bytes and the exact asset inventory with the public anchor. It records REL-06 as PASS in `signed-phase-report.json` and uploads it with `signed-verification.json` in `forge-signed-release-review`. Wait for the successful run and download `forge-staged-signed-delivery` from that run.
 
@@ -56,7 +56,8 @@ After filling the reviewed rows, check that the report contains only the public 
 node scripts/release-policy.mjs public-report known-problems-report.json
 if ($LASTEXITCODE -ne 0) { throw 'Check the public evidence references before dispatch.' }
 $candidateRun = Read-Host 'Successful candidate run ID'
-gh workflow run release-review.yml --repo psewdon1m/forge --ref forge-v0.0.1 `
+$tag = (Get-Content -Raw -LiteralPath candidate/forge-release.unsigned.json | ConvertFrom-Json).tag
+gh workflow run release-review.yml --repo psewdon1m/forge --ref $tag `
   --raw-field "candidate_run_id=$candidateRun" --field "report=@known-problems-report.json"
 ```
 
@@ -102,9 +103,11 @@ if ($LASTEXITCODE -ne 0) { throw 'Pre-publication qualification failed.' }
 Create a GitHub draft from the exact staged signed delivery. Run these commands from the extracted `forge-staged-signed-delivery` directory. The manifest, signature, bootstrap and ZIP come from the same approved build.
 
 ```powershell
-$tag = 'forge-v0.0.1'
+$manifest = Get-Content -Raw -LiteralPath forge-release.json | ConvertFrom-Json
+$tag = $manifest.tag
+$version = $manifest.version
 $assets = @(
-  'Forge-Setup-0.0.1.exe', 'forge-0.0.1-windows-x64.zip',
+  "Forge-Setup-$version.exe", "forge-$version-windows-x64.zip",
   'forge-release.json', 'forge-release.sig', 'forge-sbom.cdx.json',
   'forge-build-provenance.json', 'forge-package-smoke.json',
   'known-problems-report.json', 'release-notes.md', 'SHA256SUMS'
@@ -202,7 +205,8 @@ Save `forge-stable-qualification` outside Actions before its 90-day retention ex
 From a directory containing the verified versioned delivery, run the exact versioned setup executable from its trusted distribution point.
 
 ```powershell
-./Forge-Setup-0.0.1.exe install ./forge-release.json ./forge-release.sig ./forge-0.0.1-windows-x64.zip
+$version = (Get-Content -Raw -LiteralPath forge-release.json | ConvertFrom-Json).version
+& "./Forge-Setup-$version.exe" install ./forge-release.json ./forge-release.sig "./forge-$version-windows-x64.zip"
 & (Join-Path $env:LOCALAPPDATA 'Forge/Installation/Forge Launcher.exe') status
 & (Join-Path $env:LOCALAPPDATA 'Forge/Installation/Forge Launcher.exe')
 ```

@@ -3,7 +3,7 @@ import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { bootstrapName, candidateDeliveryFiles, canonical, commitFormat, fileDigest, manifestDomain, manifestFor, packageName, stableVersion } from './release-format.mjs';
-import { gate, loadCatalog, validatePublicPart12Report } from './release-policy.mjs';
+import { gate, loadCatalog, validatePublicPart12Report, verifyFirstReleaseApplicability } from './release-policy.mjs';
 
 const hexDigest = /^[0-9a-f]{64}$/;
 
@@ -60,15 +60,15 @@ export async function verifySignedRelease(directory, approval, anchor) {
   };
 }
 
-export function completeSignedReport(report, verification, ids, runUrl) {
-  gate(report, verification, ids, { phase: 'pre-signing' });
+export function completeSignedReport(report, verification, ids, runUrl, noStablePredecessor = false) {
+  gate(report, verification, ids, { phase: 'pre-signing', noStablePredecessor });
   const completed = {
     ...report,
     checks: report.checks.map(row => row.id === 'REL-06' ? {
       id: row.id, status: 'PASS', evidence: [runUrl], reason: null,
     } : row),
   };
-  gate(completed, verification, ids, { phase: 'signed-artifact' });
+  gate(completed, verification, ids, { phase: 'signed-artifact', noStablePredecessor });
   return completed;
 }
 
@@ -84,7 +84,8 @@ async function main() {
   const verification = await verifySignedRelease(directory, approval, process.env.FORGE_RELEASE_PUBLIC_KEY_HEX);
   const report = JSON.parse(await readFile(path.join(directory, 'known-problems-report.json'), 'utf8'));
   const { ids } = await loadCatalog();
-  const signedReport = completeSignedReport(report, verification, ids, 'https://github.com/psewdon1m/forge/actions/runs/' + runId);
+  const noStablePredecessor = await verifyFirstReleaseApplicability(report);
+  const signedReport = completeSignedReport(report, verification, ids, 'https://github.com/psewdon1m/forge/actions/runs/' + runId, noStablePredecessor);
   validatePublicPart12Report(signedReport);
   const completed = canonical(signedReport);
   await mkdir(outputDirectory);

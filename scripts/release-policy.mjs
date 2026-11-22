@@ -144,7 +144,27 @@ export function verifyWorkflowRun(run, { role, revision, id }) {
   }
 }
 
-export function gate(report, subjects, ids, { phase = 'release-ready' } = {}) {
+export async function verifyFirstReleaseApplicability(report, request = fetch) {
+  if (!Array.isArray(report?.checks) || !report.checks.some(row => row?.id === 'REL-12' && row.status === 'N/A')) return false;
+  for (let page = 1; ; page++) {
+    const response = await request('https://api.github.com/repos/psewdon1m/forge/releases?per_page=100&page=' + page, {
+      redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(20_000),
+    });
+    if (!response.ok) throw new Error('Public GitHub release history returned HTTP ' + response.status);
+    const releases = await response.json();
+    if (!Array.isArray(releases) || releases.some(release => typeof release?.tag_name !== 'string' ||
+        typeof release.draft !== 'boolean' || typeof release.prerelease !== 'boolean')) {
+      throw new Error('Invalid public Forge release history');
+    }
+    if (releases.some(release => !release.draft && !release.prerelease &&
+        release.tag_name.startsWith('forge-v') && stableVersion.test(release.tag_name.slice(7)))) {
+      throw new Error('REL-12 is applicable because Forge has a published Stable release');
+    }
+    if (releases.length < 100) return true;
+  }
+}
+
+export function gate(report, subjects, ids, { phase = 'release-ready', noStablePredecessor = false } = {}) {
   const currentPhase = phaseOrder.indexOf(phase);
   if (currentPhase < 0) throw new Error('Invalid Part 12 gate phase');
   checkSubjects(subjects);
@@ -163,7 +183,7 @@ export function gate(report, subjects, ids, { phase = 'release-ready' } = {}) {
     const requiredPhase = deferredChecks.get(check.id);
     const deferred = check.status === 'UNKNOWN' && requiredPhase !== undefined &&
       check.deferred_until === requiredPhase && currentPhase < phaseOrder.indexOf(requiredPhase);
-    const firstReleaseWithoutPredecessor = check.id === 'REL-12' && tag === 'forge-v0.0.1' && check.status === 'N/A';
+    const firstReleaseWithoutPredecessor = check.id === 'REL-12' && noStablePredecessor === true && check.status === 'N/A';
     if (requiredPhase && !firstReleaseWithoutPredecessor &&
         (currentPhase < phaseOrder.indexOf(requiredPhase) ? !deferred : check.status !== 'PASS')) {
       unresolved.push(check.id);
@@ -215,7 +235,8 @@ async function main() {
     const [reportFile, tag, revision, packageSha256] = args;
     const { ids } = await loadCatalog();
     const report = JSON.parse(await readFile(reportFile, 'utf8'));
-    const passed = gate(report, { tag, revision, packageSha256 }, ids);
+    const noStablePredecessor = await verifyFirstReleaseApplicability(report);
+    const passed = gate(report, { tag, revision, packageSha256 }, ids, { noStablePredecessor });
     console.log('Part 12 gate verified ' + passed + ' check rows for ' + tag);
     return;
   }

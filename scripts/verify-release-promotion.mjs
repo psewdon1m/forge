@@ -5,7 +5,7 @@ import path from 'node:path';
 import { setTimeout } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import { bootstrapName, canonical, commitFormat, fileDigest, packageName, releaseBase, signedDeliveryFiles, stableVersion } from './release-format.mjs';
-import { gate, isPublicEvidenceUrl, loadCatalog, validatePublicPart12Report } from './release-policy.mjs';
+import { gate, isPublicEvidenceUrl, loadCatalog, validatePublicPart12Report, verifyFirstReleaseApplicability } from './release-policy.mjs';
 
 const repository = 'psewdon1m/forge';
 const apiPath = `repos/${repository}`;
@@ -45,13 +45,13 @@ export function validateVerification(verification, qualified, runId) {
   return { setup, inventory };
 }
 
-export function validatePromotionReports(report, signedReport, verification, ids, phase = 'release-ready') {
+export function validatePromotionReports(report, signedReport, verification, ids, phase = 'release-ready', noStablePredecessor = false) {
   if (digest(signedReport) !== verification.signedReportSha256) throw new Error('Signed-phase report digest changed');
   const signed = JSON.parse(signedReport);
-  gate(signed, verification, ids, { phase: 'signed-artifact' });
+  gate(signed, verification, ids, { phase: 'signed-artifact', noStablePredecessor });
   validatePublicPart12Report(signed);
   const rows = new Map(signed.checks.map(row => [row.id, row]));
-  gate(report, verification, ids, { phase });
+  gate(report, verification, ids, { phase, noStablePredecessor });
   validatePublicPart12Report(report);
   for (const row of report.checks) {
     const approved = rows.get(row.id);
@@ -101,18 +101,6 @@ async function githubJson(endpoint, request) {
   const response = await request(apiRoot + endpoint, { redirect: 'error', cache: 'no-store', signal: AbortSignal.timeout(20_000) });
   if (!response.ok) throw new Error('Public GitHub API returned HTTP ' + response.status + ' for ' + endpoint);
   return response.json();
-}
-
-export async function verifyFirstReleaseApplicability(report, request = fetch) {
-  if (!report.checks.some(row => row.id === 'REL-12' && row.status === 'N/A')) return;
-  for (let page = 1; ; page++) {
-    const releases = await githubJson('/releases?per_page=100&page=' + page, request);
-    if (!Array.isArray(releases)) throw new Error('Invalid public Forge release history');
-    if (releases.some(release => release?.draft === false && release.prerelease === false &&
-        typeof release.tag_name === 'string' && release.tag_name.startsWith('forge-v') &&
-        stableVersion.test(release.tag_name.slice(7)))) throw new Error('REL-12 is applicable because Forge has a published Stable release');
-    if (releases.length < 100) return;
-  }
 }
 
 async function readPublicRelease(verification, state, request) {
@@ -197,8 +185,8 @@ async function qualify(qualifiedFile, signedDirectory, output) {
   const report = JSON.parse(inputs.report);
   const windows = JSON.parse(inputs.windows_qualification);
   const { ids } = await loadCatalog();
-  validatePromotionReports(report, signedReport, verification, ids);
-  await verifyFirstReleaseApplicability(report);
+  const noStablePredecessor = await verifyFirstReleaseApplicability(report);
+  validatePromotionReports(report, signedReport, verification, ids, 'release-ready', noStablePredecessor);
   await mkdir(output);
   const releaseId = await verifyPublicDelivery(verification, qualified, inputs.signed_run_id, windows, process.env.RUNNER_TEMP);
   await writeFile(path.join(output, 'known-problems-report.json'), inputs.report, { flag: 'wx' });
@@ -260,7 +248,8 @@ async function checkBeforePublication(reportFile, signingReview, delivery) {
   const { inventory } = validateVerification(verification, {
     tag: verification.tag, version: verification.tag?.slice(7), commit: verification.revision,
   }, verification.runId);
-  validatePromotionReports(report, signed, verification, ids, 'pre-publication');
+  const noStablePredecessor = await verifyFirstReleaseApplicability(report);
+  validatePromotionReports(report, signed, verification, ids, 'pre-publication', noStablePredecessor);
   const entries = await readdir(delivery, { withFileTypes: true });
   if (entries.length !== inventory.length || entries.some(entry => !entry.isFile() || !inventory.includes(entry.name))) {
     throw new Error('Pre-publication delivery inventory differs from the signed review');
@@ -270,7 +259,6 @@ async function checkBeforePublication(reportFile, signingReview, delivery) {
       throw new Error('Pre-publication delivery changed: ' + name);
     }
   }
-  await verifyFirstReleaseApplicability(report);
   console.log(`Verified Part 12 before publishing ${verification.tag}, ZIP SHA-256 ${verification.packageSha256}`);
 }
 

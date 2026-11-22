@@ -129,7 +129,10 @@ test('only explicit evidence deferred to its legitimate phase can pass an earlie
   const first = { ...signed, checks: signed.checks.map(row => row.id === 'REL-12' ? {
     id: row.id, status: 'N/A', evidence: ['release history receipt'], reason: 'No published Forge predecessor.',
   } : row) };
-  assert.equal(gate(first, subjects, phasedIds, { phase: 'pre-publication' }), phasedIds.size);
+  assert.throws(() => gate(first, subjects, phasedIds, { phase: 'pre-publication' }), /Unresolved IDs: REL-12/);
+  assert.equal(gate(first, subjects, phasedIds, { phase: 'pre-publication', noStablePredecessor: true }), phasedIds.size);
   const later = { ...subjects, tag: 'forge-v0.0.2' };
-  assert.throws(() => gate({ ...first, release_tag: later.tag }, later, phasedIds, { phase: 'pre-publication' }), /Unresolved IDs: REL-12/);
+  const firstPublishedVersion = { ...first, release_tag: later.tag };
+  assert.throws(() => gate(firstPublishedVersion, later, phasedIds, { phase: 'pre-publication' }), /Unresolved IDs: REL-12/);
+  assert.equal(gate(firstPublishedVersion, later, phasedIds, { phase: 'pre-publication', noStablePredecessor: true }), phasedIds.size);
 });
