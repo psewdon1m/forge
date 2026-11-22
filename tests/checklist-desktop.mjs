@@ -104,6 +104,7 @@ try {
   const page = await app.firstWindow();
   await button(page, 'Projects').click();
   await button(page, 'Shoot checklist').click();
+  await button(page, 'Fit all').click();
   await page.locator('.react-flow__node[data-id="' + nodeId + '"]').dblclick();
   await expect(grouped(page).getByRole('checkbox').first()).toHaveAccessibleName('Check white balance');
   await expect(grouped(page).getByRole('checkbox', { name: 'Set key light' })).toBeChecked();

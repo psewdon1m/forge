@@ -130,6 +130,7 @@ try {
     const imageCard = state.value.space.nodes.find(node => node.content.asset.format === 'png');
     assert.ok(imageCard);
     await page.getByRole('button', { name: 'Dismiss import results' }).click();
+    await page.getByRole('button', { name: 'Fit all', exact: true }).click();
     await page.locator('.react-flow__node[data-id="' + imageCard.id + '"]').dblclick();
     const preview = details.getByRole('img', { name: imageCard.label });
     await expect(preview).toBeVisible();

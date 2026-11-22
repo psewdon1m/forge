@@ -115,6 +115,7 @@ async function openProject(app, page, directory) {
 }
 
 async function openResearch(page, id) {
+  await button(page, 'Fit all').click();
   await page.locator(`.react-flow__node[data-id="${id}"]`).dblclick();
   const panel = page.getByRole('region', { name: 'Research sources', exact: true });
   await expect(panel).toBeVisible();

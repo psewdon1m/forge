@@ -194,6 +194,7 @@ try {
   const page = await app.firstWindow();
   await button(page, 'Projects').click();
   await button(page, 'Lighting plan').click();
+  await button(page, 'Fit all').click();
   await page.locator('.react-flow__node[data-id="' + query.nodeId + '"]').dblclick();
   const panel = scheme(page);
   const shapes = panel.locator('.react-flow__node');

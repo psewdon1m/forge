@@ -238,6 +238,7 @@ try {
   await page.getByRole('button', { name: 'Projects', exact: true }).click();
   await page.getByRole('region', { name: 'Recent projects' }).getByRole('button', { name: 'Metadata qualification' }).click();
   await expect(page.getByText('4 objects · 2 links')).toBeVisible();
+  await page.getByRole('button', { name: 'Fit all', exact: true }).click();
   await card(metadata2.id).dblclick();
   await expect(controls().getByText('Current', { exact: true })).toBeVisible();
   await expect(result().getByRole('heading', { name: '26 files' })).toBeVisible();

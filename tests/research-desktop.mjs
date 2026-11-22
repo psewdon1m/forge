@@ -118,6 +118,7 @@ async function openProject(app, page, path) {
 }
 
 async function openResearch(page, id) {
+  await button(page, 'Fit all').click();
   await page.locator(`.react-flow__node[data-id="${id}"]`).dblclick();
   await expect(panel(page)).toBeVisible();
 }

@@ -89,6 +89,7 @@ try {
   page = await app.firstWindow();
   await page.getByRole('button', { name: 'Projects', exact: true }).click();
   await page.getByRole('region', { name: 'Recent projects' }).getByRole('button', { name: 'Directory fixture' }).click();
+  await page.getByRole('button', { name: 'Fit all', exact: true }).click();
   await card().dblclick();
   await expect(region().getByRole('button', { name: 'Briefs', exact: true })).toBeVisible();
   const confirmed = (await page.evaluate(() => window.forge.project.view())).value;

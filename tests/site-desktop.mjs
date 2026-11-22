@@ -138,6 +138,7 @@ async function go(page, address) {
 }
 
 async function openExisting(page, id) {
+  await button(page, 'Fit all').click();
   await page.locator('.react-flow__node[data-id="' + id + '"]').dblclick();
   await expect(page.getByRole('textbox', { name: 'HTTPS address' })).toBeEnabled();
 }

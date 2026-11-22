@@ -156,6 +156,7 @@ try {
   const page = await app.firstWindow();
   await button(page, 'Projects').click();
   await button(page, 'Shoot Dataset').click();
+  await button(page, 'Fit all').click();
   await page.locator('.react-flow__node[data-id="' + nodeId + '"]').dblclick();
   await expect(rows(page).getByText('003.25', { exact: true })).toBeVisible();
   const restored = value(await invoke(page, 'datasetPage', { projectId, nodeId, query: { offset: 0, limit: 25 } }));

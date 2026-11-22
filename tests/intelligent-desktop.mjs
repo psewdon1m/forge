@@ -76,6 +76,7 @@ async function openProject(app, page, directory) {
   await expect(page.getByRole('heading', { name: 'Lighting review', exact: true })).toBeVisible();
 }
 async function openIntelligent(page, id) {
+  await button(page, 'Fit all').click();
   await page.locator(`.react-flow__node[data-id="${id}"]`).dblclick();
   const panel = page.getByRole('region', { name: 'Intelligent context' });
   await expect(panel).toBeVisible();

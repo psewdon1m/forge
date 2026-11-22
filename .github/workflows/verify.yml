@@ -40,80 +40,118 @@ jobs:
           New-Item -ItemType Directory -Path '.local/bin' -Force | Out-Null
           Copy-Item -LiteralPath 'target/release/forge-core.exe' -Destination '.local/bin/forge-core.exe'
       - name: Verify desktop
+        id: verify_desktop
         run: ./scripts/verify.ps1 -Suite All
       - name: Verify project restart
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/project-desktop.mjs
       - name: Verify Checklist groups, completion, keyboard reorder and text output
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/checklist-desktop.mjs
       - name: Verify Dataset import, typed editing, pagination and safe export
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/dataset-desktop.mjs
       - name: Verify Scheme editing, portable JSON and Data Links
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/scheme-desktop.mjs
       - name: Verify Site navigation, profile separation, downloads and saved references
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/site-desktop.mjs
       - name: Verify Site session persistence in a long Windows profile path
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/site-desktop.mjs --long-profile
       - name: Verify Research captures, citations and project restore
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/research-desktop.mjs
       - name: Verify Research transcription approval, cancellation and restore
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/research-transcription-desktop.mjs
       - name: Verify Intelligent context approval, provider boundaries and restore
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/intelligent-desktop.mjs
       - name: Verify paired Plains, narrow window state and native Site bounds
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/plain-panes-desktop.mjs
       - name: Verify shooting project and restore its versioned analysis history
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/shooting-project-windows.mjs
       - name: Verify project export and restore in a clean desktop profile
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/backup-desktop.mjs
       - name: Verify application settings export and restore across desktop profiles
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/settings-backup-desktop.mjs
       - name: Verify retained diagnostics, pagination and export
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/logs-desktop.mjs
       - name: Verify asset import, file actions and text editing
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/asset-desktop.mjs
       - name: Verify full-size image and document opening
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/asset-open-desktop.mjs
       - name: Verify document edit copies and conflict recovery
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/document-edit-desktop.mjs
       - name: Verify Directory on the Windows filesystem
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/directory-core-windows.mjs
       - name: Verify Directory from Space
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/directory-desktop.mjs
       - name: Verify Directory Data Links and external edits
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/directory-source-desktop.mjs
       - name: Verify Gallery and Data Links on Windows
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/gallery-links-desktop.mjs
       - name: Verify Gallery video, posters, Palette filtering and restore
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/gallery-video-desktop.mjs
       - name: Verify Palette, result history and cancellation
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/palette-desktop.mjs
       - name: Verify Palette PNG color normalization
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/palette-png-windows.mjs
       - name: Verify Metadata, exact source versions and EXIF visibility
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/metadata-desktop.mjs
       - name: Verify Comparison, source versions and history
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/comparison-desktop.mjs
       - name: Verify Comparison document text, pixel differences and restore
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/comparison-formats-desktop.mjs
       - name: Verify Editor graph, preview cancellation, export and restore
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/editor-desktop.mjs
       - name: Verify Git review, commits, safe checkout and restored cards
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/git-desktop.mjs
       - name: Verify recovery after an interrupted import
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/asset-crash-windows.mjs
       - name: Verify import progress and cancellation
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/import-progress-desktop.mjs
       - name: Verify immutable Part 12 catalog
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node scripts/release-policy.mjs catalog
       - name: Verify exact candidate as first install and update target over isolated HTTPS
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/release-windows.mjs --updates --candidate-target --manual-rollback
       - name: Verify staged signed candidate from local files and continue in Settings
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/release-windows.mjs --updates --candidate-target --manual-rollback --local-update
       - name: Verify manual rollback after interruption on both sides of the settings commit
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/release-windows.mjs --updates --manual-rollback --rollback-crashes
       - name: Verify readiness budget during activation and manual rollback
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/release-windows.mjs --updates --manual-rollback --slow-readiness
       - name: Verify automatic recovery from an unhealthy candidate and interrupted launcher
+        if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: |
           node tests/release-windows.mjs --updates --failed-startup
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

@@ -182,6 +182,7 @@ try {
   await page.getByRole('button', { name: 'Projects', exact: true }).click();
   await page.getByRole('region', { name: 'Recent projects' }).getByRole('button', { name: 'Palette qualification' }).click();
   await expect(page.getByText('2 objects · 1 links')).toBeVisible();
+  await page.getByRole('button', { name: 'Fit all', exact: true }).click();
   await openPalette();
   await expect(controls().getByText('Current', { exact: true })).toBeVisible();
   assert.deepEqual((await status()).latest, recomputed);

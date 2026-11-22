@@ -170,6 +170,7 @@ try {
   page = await app.firstWindow();
   await page.getByRole('button', { name: 'Projects', exact: true }).click();
   await page.getByRole('region', { name: 'Recent projects' }).getByRole('button', { name: 'Document edit fixture' }).click();
+  await page.getByRole('button', { name: 'Fit all', exact: true }).click();
   await openCard(page, pdfNode.id);
   await expect(importEdit()).toBeVisible();
   await enable(app, 1);
