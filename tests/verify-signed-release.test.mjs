@@ -4,16 +4,16 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { ed25519PublicHex, fileDigest, manifestDomain, manifestFor, signRecord } from '../scripts/release-format.mjs';
+import { bootstrapName, ed25519PublicHex, fileDigest, installerName, manifestDomain, manifestFor, packageName, signRecord } from '../scripts/release-format.mjs';
 import { verifySignedRelease } from '../scripts/verify-signed-release.mjs';
 
 test('signed release verifies against the approved bytes and pinned public key', async () => {
   const delivery = await mkdtemp(path.join(tmpdir(), 'forge-signed-review-'));
   const file = name => path.join(delivery, name);
-  const version = '0.0.1';
+  const version = '0.0.5';
   const commitSha = 'a'.repeat(40);
-  const zip = 'forge-0.0.1-windows-x64.zip';
-  const bootstrap = 'Forge-Setup-0.0.1.exe';
+  const zip = packageName(version);
+  const bootstrap = bootstrapName(version);
   const payloads = new Map([
     [zip, 'Package fixture'], [bootstrap, 'Bootstrap fixture'], ['forge-sbom.cdx.json', '{}'],
     ['release-notes.md', 'Notes for the fixture.'], ['forge-build-provenance.json', '{}'],
@@ -52,4 +52,21 @@ test('signed release verifies against the approved bytes and pinned public key',
   await writeFile(file(bootstrap), payloads.get(bootstrap));
   await writeFile(file('SHA256SUMS'), sums.replace('forge-release.sig', 'forge-release.changed.sig'));
   await assert.rejects(verifySignedRelease(delivery, approval, anchor), /checksum inventory/);
+
+  const name = installerName(version);
+  await writeFile(file(name), 'Installer fixture');
+  const hashesForInstaller = [zip, bootstrap, 'forge-release.json', 'forge-release.sig'];
+  const receipt = {
+    name, revision: commitSha, sha256: await fileDigest(file(name)),
+    inputs: Object.fromEntries(hashesForInstaller.map(input => [input, hashes[input]])),
+  };
+  await writeFile(file('SHA256SUMS'), sums + `${receipt.sha256}  ${name}\n`);
+  const assembled = await verifySignedRelease(delivery, approval, anchor, receipt);
+  assert.equal(assembled.installerSha256, receipt.sha256);
+  assert.equal(assembled.checkedFiles[name], receipt.sha256);
+  await assert.rejects(verifySignedRelease(delivery, approval, anchor, {
+    ...receipt, inputs: { ...receipt.inputs, [zip]: 'b'.repeat(64) },
+  }), /assembly record/);
+  await writeFile(file(name), 'Different installer');
+  await assert.rejects(verifySignedRelease(delivery, approval, anchor, receipt), /assembly record/);
 });

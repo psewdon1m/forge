@@ -28,6 +28,7 @@ import { BackupSettings } from './backup-settings';
 import { DiagnosticsLogs } from './diagnostics-logs';
 import { useSettings } from './use-settings';
 import { UpdateSettings } from './update-settings';
+import { UninstallSettings } from './uninstall-settings';
 import { NotePlain, PlainPane, useWidePlainLayout, type PlainFocusRequest } from './plain-pane';
 const DatasetPlain = React.lazy(() => import('./dataset-plain').then(module => ({ default: module.DatasetPlain })));
 const SchemePlain = React.lazy(() => import('./scheme-plain'));
@@ -1191,6 +1192,7 @@ function Workspace() {
           onSettingsRestored={settings.adopt} />
         {settings.message && <p role="alert">{settings.message} <button disabled={settings.busy} onClick={() => { void settings.refresh(); }}>Reload settings</button></p>}
         <UpdateSettings version={appVersion} busy={pendingWrites > 0 || working || settings.busy} hasProject={realProject} />
+        <UninstallSettings busy={pendingWrites > 0 || working || settings.busy} />
       </>}
       {destination === 'Logs' && <>
         <DiagnosticsLogs health={diagnosticHealth} busy={pendingWrites > 0 || working} />

@@ -268,7 +268,8 @@ export type LogsPage = LogsHealth & { rows: LogsRow[]; older: LogsCursor | null 
 declare global {
   interface Window {
     forge?: {
-      build: { version?: string; channel?: string };
+      build: { version?: string; channel?: string; managed?: boolean };
+      uninstall(): Promise<Reply<null>>;
       updates: {
         status(): Promise<Reply<UpdateStatus>>;
         check(): Promise<Reply<UpdateStatus>>;

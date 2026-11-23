@@ -11,6 +11,13 @@ export const helperVersion = readFileSync(new URL('../crates/forge-update-helper
 
 export const packageName = version => 'forge-' + version + '-windows-x64.zip';
 export const bootstrapName = version => 'Forge-Setup-' + version + '.exe';
+export const installerName = version => 'Forge-Installer-' + version + '.exe';
+
+export function hasWindowsInstaller(version) {
+  // Releases before 0.0.5 were published with only the command-line bootstrap.
+  const [major, minor, patch] = version.split('.').map(Number);
+  return major > 0 || minor > 0 || patch >= 5;
+}
 
 export function candidateDeliveryFiles(version) {
   return [packageName(version), bootstrapName(version), 'forge-sbom.cdx.json', 'release-notes.md', 'forge-build-provenance.json'];
@@ -18,7 +25,7 @@ export function candidateDeliveryFiles(version) {
 
 export function signedDeliveryFiles(version) {
   return [...candidateDeliveryFiles(version), 'forge-package-smoke.json', 'known-problems-report.json',
-    'forge-release.json', 'forge-release.sig', 'SHA256SUMS'];
+    'forge-release.json', 'forge-release.sig', ...(hasWindowsInstaller(version) ? [installerName(version)] : []), 'SHA256SUMS'];
 }
 
 export function canonical(value) {

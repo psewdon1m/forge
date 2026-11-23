@@ -141,9 +141,9 @@ jobs:
       - name: Verify exact candidate as first install and update target over isolated HTTPS
         if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/release-windows.mjs --updates --candidate-target --manual-rollback
-      - name: Verify staged signed candidate from local files and continue in Settings
+      - name: Verify local-file updates and rollback in a selected installation folder
         if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
-        run: node tests/release-windows.mjs --updates --candidate-target --manual-rollback --local-update
+        run: node tests/release-windows.mjs --updates --candidate-target --manual-rollback --local-update --custom-install
       - name: Verify manual rollback after interruption on both sides of the settings commit
         if: ${{ !cancelled() && steps.verify_desktop.outcome == 'success' }}
         run: node tests/release-windows.mjs --updates --manual-rollback --rollback-crashes

@@ -23,6 +23,8 @@ const interruptedStartup = process.argv.includes('--interrupted-startup');
 const manualRollback = process.argv.includes('--manual-rollback');
 const rollbackCrashes = process.argv.includes('--rollback-crashes');
 const candidateTarget = process.argv.includes('--candidate-target');
+const customInstall = process.argv.includes('--custom-install');
+const uninstall = process.argv.includes('--uninstall');
 const localUpdate = process.argv.includes('--local-update');
 const slowReadiness = process.argv.includes('--slow-readiness');
 const candidateDelayMs = 15_000;
@@ -42,6 +44,8 @@ if (rollbackCrashes && !manualRollback) throw new Error('Use --rollback-crashes 
 if (candidateTarget && (!discover || failedStartup || interruptedStartup)) {
   throw new Error('Use --candidate-target with --updates and an unmodified successor');
 }
+if (customInstall && !candidateTarget) throw new Error('Use --custom-install with --candidate-target');
+if (uninstall && (discover || candidate || liveDiscovery)) throw new Error('Use --uninstall with an isolated first install');
 if (localUpdate && (!candidateTarget || !manualRollback || rollbackCrashes || fullBackupVolume)) {
   throw new Error('Use --local-update with --updates --candidate-target --manual-rollback');
 }
@@ -116,6 +120,11 @@ const manifest = await manifestFor({ version: workspaceVersion, commitSha: testC
 const signedPath = path.join(candidate ? run : delivery, 'forge-release.json');
 const signaturePath = path.join(candidate ? run : delivery, 'forge-release.sig');
 let fresh = { ...process.env, LOCALAPPDATA: localUser };
+const removalTemp = path.join(run, 'Removal worker temporary directory');
+if (uninstall) {
+  await mkdir(removalTemp);
+  fresh = { ...fresh, TEMP: removalTemp, TMP: removalTemp };
+}
 let installation = path.join(localUser, 'Forge', 'Installation');
 let activePath = path.join(installation, 'active.json');
 
@@ -358,10 +367,12 @@ async function installPredecessor() {
   localUser = path.join(run, 'Predecessor user');
   await mkdir(localUser);
   fresh = { ...process.env, LOCALAPPDATA: localUser };
-  installation = path.join(localUser, 'Forge', 'Installation');
+  const destination = customInstall ? path.join(run, 'Custom Forge folder') : path.join(localUser, 'Forge');
+  installation = path.join(destination, 'Installation');
   activePath = path.join(installation, 'active.json');
   reject(bootstrap, ['install', ...release, packagePath], /downgrade/i, { env: fresh });
-  active = JSON.parse(checked(setup, ['install', ...release, packagePath], { env: fresh }));
+  const installCommand = customInstall ? ['install-at', destination] : ['install'];
+  active = JSON.parse(checked(setup, [...installCommand, ...release, packagePath], { env: fresh }));
   assert.equal(active.version, version);
   assert.equal(active.packageSha256, installedManifest.artifact.sha256);
   installedLauncher = path.join(installation, 'Forge Launcher.exe');
@@ -782,7 +793,7 @@ try {
     packaged: app.isPackaged, userData: app.getPath('userData'), electron: process.versions.electron,
   }));
   assert.equal(check.packaged, true);
-  assert.equal(check.userData, path.join(localUser, 'Forge', 'Profile'));
+  assert.equal(check.userData, path.join(path.dirname(installation), 'Profile'));
   const discovery = {};
   if (!candidate) {
     if (channel) assert.equal(channel.requests.length, 0);
@@ -1176,6 +1187,41 @@ try {
       discovery.liveStableChannel = { state: 'no published immutable Forge release', testOverrideIgnored: true };
     }
   }
+  if (uninstall) {
+    const database = path.join(project, '.forge', 'workspace.sqlite');
+    const projectHash = await fileDigest(database);
+    const localProfile = path.join(path.dirname(installation), 'Profile');
+    const internal = path.join(localProfile, 'Nested project', '.forge', 'workspace.sqlite');
+    await mkdir(path.dirname(internal), { recursive: true });
+    await writeFile(internal, 'Migration-independent nested project fixture');
+    const internalHash = await fileDigest(internal);
+    await writeFile(path.join(localProfile, 'uninstall-cache-fixture.txt'), 'Eliminate this application-owned file');
+    await app.evaluate(({ dialog }) => {
+      let confirmations = 0;
+      dialog.showMessageBox = async (_owner, options) => {
+        if (options.title !== 'Uninstall Forge' || options.cancelId !== 0 || options.defaultId !== 0) {
+          throw new Error('Unexpected destructive-action confirmation');
+        }
+        return { response: confirmations++ === 0 ? 0 : 1 };
+      };
+    });
+    await window.getByRole('button', { name: 'Settings', exact: true }).click();
+    const remove = window.getByRole('button', { name: 'Uninstall Forge', exact: true });
+    await remove.click();
+    await expect(remove).toBeEnabled();
+    assert.deepEqual(JSON.parse(await readFile(activePath, 'utf8')), active);
+    const closed = once(originalProcess, 'exit', { signal: AbortSignal.timeout(30_000) });
+    await remove.click();
+    await closed;
+    await expect.poll(async () => stat(installation).then(() => true, () => false), { timeout: 25_000 }).toBe(false);
+    await expect.poll(async () => (await readdir(removalTemp)).filter(name => name.startsWith('forge-remove-'))).toEqual([]);
+    await assert.rejects(stat(path.join(localProfile, 'uninstall-cache-fixture.txt')), { code: 'ENOENT' });
+    assert.equal(await fileDigest(database), projectHash);
+    assert.equal(await fileDigest(internal), internalHash);
+    discovery.settingsUninstall = {
+      confirmationAndCancelVerified: true, installAndCacheRemoved: true, projectFoldersPreserved: true, temporaryWorkerRemoved: true,
+    };
+  }
   const evidence = {
     outcome: 'PASS', platform: 'windows-x64', channel: 'test signing key', version: workspaceVersion,
     candidateCommit: testCommit, candidateCommitIsFixture: !committed,
@@ -1186,6 +1232,7 @@ try {
     installedFontLicenses: bundledFontLicenses.map(([, packaged]) => packaged),
     installedCargoNotices: { crates: rustNoticeIndex.length, files: rustNoticeIndex.reduce((total, crate) => total + crate.files.length, 0) },
     launchedExactSlotAndCreatedLocalProject: true, runtime: check.electron, offNetwork: true,
+    ...(customInstall ? { customInstallerDestination: true } : {}),
     ...(interruptedInstall ? { interruptedFirstInstall: { retriedSameSignedPackage: true, abandonedSlotRemoved: true } } : {}),
     ...discovery,
   };

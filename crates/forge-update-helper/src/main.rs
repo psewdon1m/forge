@@ -6,15 +6,16 @@ use std::{
 };
 
 use forge_update_helper::{
-    Result, bundle, discovery, embedded_trust, install::per_user_root, job,
-    manifest::METADATA_LIMIT, read_bounded,
+    Result, bundle, discovery, embedded_trust, install::helper_root, job, manifest::METADATA_LIMIT,
+    read_bounded,
 };
 
 fn run() -> Result<()> {
     let args = env::args_os().skip(1).collect::<Vec<_>>();
+    let root = || helper_root(&env::current_exe()?);
     match args.as_slice() {
         [command] if command == "stage-update" => {
-            println!("{}", serde_json::to_string(&job::stage(&per_user_root()?, stage_request()?)?)?);
+            println!("{}", serde_json::to_string(&job::stage(&root()?, stage_request()?)?)?);
             Ok(())
         }
         [command, manifest, signature, package, rest @ ..] if command == "stage-local-update" => {
@@ -24,7 +25,7 @@ fn run() -> Result<()> {
                 _ => return Err("Expected a transition and its detached signature".into()),
             };
             let staged = job::stage_local(
-                &per_user_root()?,
+                &root()?,
                 stage_request()?,
                 job::LocalBundle { manifest: Path::new(manifest), signature: Path::new(signature), package: Path::new(package), transition },
             )?;
@@ -32,9 +33,16 @@ fn run() -> Result<()> {
             Ok(())
         }
         [command] if command == "update-status" || command == "check-updates" => {
-            let state = discovery::status(&per_user_root()?, command == "check-updates")?;
+            let state = discovery::status(&root()?, command == "check-updates")?;
             println!("{}", serde_json::to_string(&state)?);
             Ok(())
+        }
+        [command, directory] if command == "remove-installation" => {
+            forge_update_helper::install::remove_installation(Path::new(directory), true)
+        }
+        [command, directory, pid] if command == "remove-after-exit" => {
+            let pid = pid.to_str().ok_or("Invalid Forge process identifier")?.parse()?;
+            forge_update_helper::install::remove_after_exit(Path::new(directory), pid)
         }
         [command, source, output] if command == "pack" => bundle::pack(Path::new(source), Path::new(output)),
         [command, manifest, signature, package, rest @ ..] if command == "verify-release" => {

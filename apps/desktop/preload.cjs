@@ -35,7 +35,8 @@ function buildValue(name) {
 }
 
 contextBridge.exposeInMainWorld('forge', {
-  build: { version: buildValue('version'), channel: buildValue('channel') },
+  build: { version: buildValue('version'), channel: buildValue('channel'), managed: buildValue('managed') === 'true' },
+  uninstall: () => ipcRenderer.invoke('forge:project:uninstall'),
   updates: {
     status: () => ipcRenderer.invoke('forge:project:update-status'),
     check: () => ipcRenderer.invoke('forge:project:check-updates'),

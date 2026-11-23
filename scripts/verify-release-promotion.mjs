@@ -4,7 +4,7 @@ import { mkdir, open, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { setTimeout } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
-import { bootstrapName, canonical, commitFormat, fileDigest, packageName, releaseBase, signedDeliveryFiles, stableVersion } from './release-format.mjs';
+import { bootstrapName, canonical, commitFormat, fileDigest, hasWindowsInstaller, installerName, packageName, releaseBase, signedDeliveryFiles, stableVersion } from './release-format.mjs';
 import { gate, isPublicEvidenceUrl, loadCatalog, validatePublicPart12Report, verifyFirstReleaseApplicability } from './release-policy.mjs';
 
 const repository = 'psewdon1m/forge';
@@ -22,7 +22,7 @@ const checks = [
   'interruptedRollbackRecovery', 'registeredDocxAndPdfEditors',
 ];
 const windowsFields = new Set(['schemaVersion', 'profile', 'platform', 'windowsBuild', 'releaseId', 'tag',
-  'revision', 'packageSha256', 'setupSha256', 'checks']);
+  'revision', 'packageSha256', 'setupSha256', 'installerSha256', 'checks']);
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const readJson = async file => JSON.parse(await readFile(file, 'utf8'));
 
@@ -35,14 +35,16 @@ export function validateVerification(verification, qualified, runId) {
   }
   const zip = packageName(version);
   const setup = bootstrapName(version);
+  const installer = hasWindowsInstaller(version) ? installerName(version) : undefined;
   const inventory = signedDeliveryFiles(version);
   const { checkedFiles, fileSizes } = verification;
   if (!checkedFiles || !fileSizes || Object.keys(checkedFiles).length !== inventory.length || Object.keys(fileSizes).length !== inventory.length ||
       inventory.some(name => !sha256.test(checkedFiles[name] ?? '') || !Number.isSafeInteger(fileSizes[name]) || fileSizes[name] < 1) ||
-      checkedFiles[zip] !== verification.packageSha256 || checkedFiles[setup] !== verification.setupSha256 || fileSizes['forge-release.sig'] !== 64) {
+      checkedFiles[zip] !== verification.packageSha256 || checkedFiles[setup] !== verification.setupSha256 ||
+      (installer && checkedFiles[installer] !== verification.installerSha256) || fileSizes['forge-release.sig'] !== 64) {
     throw new Error('Signed verification has an invalid asset inventory');
   }
-  return { setup, inventory };
+  return { setup, inventory, ...(installer ? { installer } : {}) };
 }
 
 export function validatePromotionReports(report, signedReport, verification, ids, phase = 'release-ready', noStablePredecessor = false) {
@@ -65,7 +67,8 @@ export function validateWindowsQualification(receipt, verification, releaseId) {
   if (!Number.isSafeInteger(releaseId) || releaseId < 1 || receipt?.schemaVersion !== 1 || !['standard-user', 'clean-standard-user'].includes(receipt.profile) ||
       receipt.platform !== 'windows-x64' || !Number.isSafeInteger(receipt.windowsBuild) || receipt.windowsBuild < 22000 ||
       receipt.releaseId !== releaseId || receipt.tag !== verification.tag || receipt.revision !== verification.revision ||
-      receipt.packageSha256 !== verification.packageSha256 || receipt.setupSha256 !== verification.setupSha256) {
+      receipt.packageSha256 !== verification.packageSha256 || receipt.setupSha256 !== verification.setupSha256 ||
+      receipt.installerSha256 !== verification.installerSha256) {
     throw new Error('Windows qualification does not match the exact immutable release and Windows standard-user profile');
   }
   if (Object.keys(receipt).some(key => !windowsFields.has(key)) ||
@@ -155,14 +158,16 @@ function github(...args) {
 }
 
 export async function verifyPublicDelivery(verification, qualified, runId, windows, directory, { request = fetch, gh = github } = {}) {
-  const { setup, inventory } = validateVerification(verification, qualified, runId);
+  const { setup, installer, inventory } = validateVerification(verification, qualified, runId);
   validateWindowsQualification(windows, verification, windows?.releaseId);
   const state = { prerelease: true, releaseId: windows.releaseId };
   await readPublicRelease(verification, state, request);
-  const localSetup = path.join(directory, setup);
-  for (const name of inventory) await verifyAsset(verification, name, request, name === setup ? localSetup : undefined);
+  const executables = [setup, ...(installer ? [installer] : [])];
+  for (const name of inventory) {
+    await verifyAsset(verification, name, request, executables.includes(name) ? path.join(directory, name) : undefined);
+  }
   gh('release', 'verify', verification.tag, '--repo', repository);
-  gh('release', 'verify-asset', verification.tag, localSetup, '--repo', repository);
+  for (const name of executables) gh('release', 'verify-asset', verification.tag, path.join(directory, name), '--repo', repository);
   return state.releaseId;
 }
 

@@ -3,7 +3,9 @@ pub mod discovery;
 pub mod install;
 pub mod job;
 pub mod manifest;
+mod reinstall;
 mod startup;
+mod uninstall;
 
 use std::{
     error::Error,

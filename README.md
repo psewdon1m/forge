@@ -49,7 +49,7 @@ If whisper.cpp is running locally, choose **Transcribe automatically** to review
 
 Use **Add Intelligent** to review material from linked Palette, Research, Dataset, saved Site quotes and text. Choose the local test provider or an installed Ollama model on this computer. Review exact inputs before sending and save responses explicitly to the project. [Model context and provider workflow](docs/contracts/model-context.md)
 
-The Windows release harness builds and verifies a test-signed bootstrap and exact ZIP locally. [Release runbook](docs/runbooks/release.md)
+For a new Windows installation, download `Forge-Installer-<version>.exe` from a release that includes the wizard. Double-click it and choose a per-user folder and Start menu group. The desktop shortcut is optional. The installer works offline and keeps the application profile in the chosen Forge folder when you uninstall. [Release runbook](docs/runbooks/release.md)
 
 Open **Settings → Updates** from the installed launcher to check the signed Stable channel. Select the exact version and save a new backup ZIP to verify, stage and start the release. Settings shows the startup result after restart. [Discovery](docs/contracts/update-discovery-v1.md) · [Update preparation](docs/contracts/update-staging-v1.md) · [Startup and recovery](docs/contracts/update-activation-v1.md)
 

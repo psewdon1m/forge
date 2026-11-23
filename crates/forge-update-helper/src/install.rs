@@ -59,6 +59,67 @@ pub fn per_user_root() -> Result<PathBuf> {
     Ok(root.join("Forge").join("Installation"))
 }
 
+pub fn launcher_root(executable: &Path) -> Result<PathBuf> {
+    if executable.file_name() == Some(LAUNCHER.as_ref())
+        && let Some(directory) = executable.parent()
+        && directory.file_name() == Some("Installation".as_ref())
+    {
+        return Ok(directory.to_path_buf());
+    }
+    per_user_root()
+}
+
+pub fn helper_root(executable: &Path) -> Result<PathBuf> {
+    if let Some(slot) = executable.parent()
+        && let Some(slots) = slot.parent()
+        && slots.file_name() == Some("slots".as_ref())
+        && slot
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| {
+                Uuid::parse_str(name).is_ok_and(|id| !id.is_nil() && id.to_string() == name)
+            })
+        && let Some(installation) = slots.parent()
+        && installation.file_name() == Some("Installation".as_ref())
+    {
+        return Ok(installation.to_path_buf());
+    }
+    per_user_root()
+}
+
+/// A wizard destination is a dedicated Forge directory on a local Windows drive.
+/// Reject reparse points before creating or opening any managed file.
+pub fn wizard_root(destination: &Path) -> Result<PathBuf> {
+    use std::path::Component;
+    #[cfg(windows)]
+    use std::path::Prefix;
+
+    let mut parts = destination.components();
+    #[cfg(windows)]
+    if !matches!(parts.next(), Some(Component::Prefix(prefix)) if matches!(prefix.kind(), Prefix::Disk(_)))
+    {
+        return Err("Choose a directory on a local Windows drive".into());
+    }
+    if parts.next() != Some(Component::RootDir)
+        || !parts.all(|part| matches!(part, Component::Normal(_)))
+        || !matches!(
+            destination.components().next_back(),
+            Some(Component::Normal(_))
+        )
+    {
+        return Err("Choose a dedicated Forge folder on a local Windows drive".into());
+    }
+    let root = destination.join("Installation");
+    for part in root.ancestors() {
+        match fs::symlink_metadata(part) {
+            Ok(_) => directory(part)?,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Ok(root)
+}
+
 #[cfg(all(windows, target_arch = "x86_64"))]
 pub fn windows_build() -> Result<u32> {
     use windows_sys::Win32::System::SystemInformation::OSVERSIONINFOW;
@@ -111,6 +172,7 @@ pub(crate) fn acquire(root: &Path) -> Result<File> {
         return Err("Invalid installation lock".into());
     }
     file.try_lock()?;
+    crate::reinstall::recover(root)?;
     Ok(file)
 }
 
@@ -211,11 +273,49 @@ pub fn first_install(
     package: &Path,
     manifest: &VerifiedManifest,
 ) -> Result<Active> {
+    install(root, launcher, package, manifest, false)
+}
+
+pub fn wizard_install(
+    destination: &Path,
+    launcher: &Path,
+    package: &Path,
+    manifest: &VerifiedManifest,
+) -> Result<Active> {
+    let root = wizard_root(destination)?;
+    if root.is_dir() && !root.join(ACTIVE).exists() && !root.join(FIRST_INSTALL).exists() {
+        for entry in fs::read_dir(&root)? {
+            if entry?.file_name() != "installation.lock" {
+                return Err("Choose a folder with an unused Forge Installation directory".into());
+            }
+        }
+    }
+    fs::create_dir_all(destination)?;
+    install(&root, launcher, package, manifest, true)
+}
+
+fn install(
+    root: &Path,
+    launcher: &Path,
+    package: &Path,
+    manifest: &VerifiedManifest,
+    wizard: bool,
+) -> Result<Active> {
     manifest.ensure_compatible(HELPER_VERSION, PROJECT_SCHEMA, windows_build()?)?;
     manifest.compare_installed(BOOTSTRAP_VERSION, &manifest.data().artifact.sha256)?;
     let input = bundle::verified_file(package, manifest)?;
     let _guard = acquire(root)?;
     match fs::symlink_metadata(root.join(ACTIVE)) {
+        Ok(_) if wizard => {
+            let active = active_record(root)?;
+            if active.version == manifest.data().version
+                && active.package_sha256 == manifest.data().artifact.sha256
+            {
+                crate::reinstall::replace(root, &active, input, manifest)?;
+                return Ok(active);
+            }
+            return Err("Forge is already installed in this folder. Upgrade through Settings → Updates, or select another folder.".into());
+        }
         Ok(_) => return Err("Forge is already installed. Use Settings → Updates.".into()),
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
         Err(error) => return Err(error.into()),
@@ -229,6 +329,37 @@ pub fn first_install(
     published?;
     let _ = fs::remove_file(root.join(FIRST_INSTALL));
     Ok(record)
+}
+
+pub fn check_uninstall(root: &Path) -> Result<()> {
+    let destination = root
+        .parent()
+        .ok_or("Invalid Forge installation directory")?;
+    if wizard_root(destination)? != root {
+        return Err("Invalid Forge installation directory".into());
+    }
+    let _guard = acquire(root)?;
+    verified_active(root)?;
+    crate::uninstall::check(root)
+}
+
+pub fn remove_installation(root: &Path, full: bool) -> Result<()> {
+    let product = root
+        .parent()
+        .ok_or("Invalid Forge installation directory")?;
+    if wizard_root(product)? != root {
+        return Err("Invalid Forge installation directory".into());
+    }
+    {
+        let _guard = acquire(root)?;
+        verified_active(root)?;
+        crate::uninstall::prepare_full_removal(product, root)?;
+    }
+    crate::uninstall::remove_files(product, root, full)
+}
+
+pub fn remove_after_exit(root: &Path, pid: u32) -> Result<()> {
+    crate::uninstall::after_exit(root, pid)
 }
 
 pub(crate) fn stage_slot(

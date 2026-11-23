@@ -2,12 +2,12 @@ import { createHash, createPublicKey, verify } from 'node:crypto';
 import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { bootstrapName, candidateDeliveryFiles, canonical, commitFormat, fileDigest, manifestDomain, manifestFor, packageName, stableVersion } from './release-format.mjs';
+import { bootstrapName, candidateDeliveryFiles, canonical, commitFormat, fileDigest, hasWindowsInstaller, installerName, manifestDomain, manifestFor, packageName, stableVersion } from './release-format.mjs';
 import { gate, loadCatalog, validatePublicPart12Report, verifyFirstReleaseApplicability } from './release-policy.mjs';
 
 const hexDigest = /^[0-9a-f]{64}$/;
 
-export async function verifySignedRelease(directory, approval, anchor) {
+export async function verifySignedRelease(directory, approval, anchor, installerReceipt) {
   if (!hexDigest.test(anchor ?? '') || !stableVersion.test(approval?.version ?? '') ||
       !commitFormat.test(approval?.commitSha ?? '') || approval.tag !== 'forge-v' + approval.version) {
     throw new Error('Invalid signed release identity or public anchor');
@@ -44,6 +44,16 @@ export async function verifySignedRelease(directory, approval, anchor) {
     throw new Error('The detached release signature is invalid');
   }
   expected.set('forge-release.sig', createHash('sha256').update(signature).digest('hex'));
+  const installer = installerName(approval.version);
+  if (installerReceipt) {
+    const inputs = Object.fromEntries([setup, zip, 'forge-release.json', 'forge-release.sig'].map(name => [name, expected.get(name)]));
+    if (installerReceipt.name !== installer || installerReceipt.revision !== approval.commitSha ||
+        canonical(installerReceipt.inputs) !== canonical(inputs) || !hexDigest.test(installerReceipt.sha256 ?? '') ||
+        await fileDigest(local(installer)) !== installerReceipt.sha256) {
+      throw new Error('Windows installer does not match the signed delivery and assembly record');
+    }
+    expected.set(installer, installerReceipt.sha256);
+  }
   const sums = [...expected].map(([name, digest]) => `${digest}  ${name}\n`).join('');
   if (await readFile(local('SHA256SUMS'), 'utf8') !== sums) throw new Error('Signed release checksum inventory does not match');
   expected.set('SHA256SUMS', createHash('sha256').update(sums).digest('hex'));
@@ -56,6 +66,7 @@ export async function verifySignedRelease(directory, approval, anchor) {
   return {
     outcome: 'PASS', tag: approval.tag, revision: approval.commitSha,
     packageSha256: expected.get(zip), setupSha256: expected.get(setup),
+    ...(installerReceipt ? { installerSha256: expected.get(installer) } : {}),
     publicKeySha256: fingerprint, checkedFiles: Object.fromEntries(expected), fileSizes: Object.fromEntries(fileSizes),
   };
 }
@@ -73,15 +84,19 @@ export function completeSignedReport(report, verification, ids, runUrl, noStable
 }
 
 async function main() {
-  const [directory, approvalPath, outputDirectory] = process.argv.slice(2);
-  if (process.argv.length !== 5) throw new Error('Use verify-signed-release.mjs SIGNED_DIRECTORY APPROVAL_JSON OUTPUT_DIRECTORY');
+  const [directory, approvalPath, outputDirectory, installerPath] = process.argv.slice(2);
+  if (!outputDirectory || process.argv.length > 6) {
+    throw new Error('Use verify-signed-release.mjs SIGNED_DIRECTORY APPROVAL_JSON OUTPUT_DIRECTORY [INSTALLER_RECEIPT]');
+  }
   const runId = process.env.GITHUB_RUN_ID;
   if (!/^[1-9]\d{0,19}$/.test(runId ?? '') || process.env.GITHUB_REPOSITORY !== 'psewdon1m/forge') throw new Error('Expected a Forge signing workflow run');
   const approval = JSON.parse(await readFile(approvalPath, 'utf8'));
   if (process.env.GITHUB_REF !== 'refs/tags/' + approval.tag || process.env.GITHUB_SHA !== approval.commitSha) {
     throw new Error('The signing workflow differs from the approved ref');
   }
-  const verification = await verifySignedRelease(directory, approval, process.env.FORGE_RELEASE_PUBLIC_KEY_HEX);
+  if (hasWindowsInstaller(approval.version) !== Boolean(installerPath)) throw new Error('Missing or unexpected Windows installer receipt');
+  const installer = installerPath && JSON.parse(await readFile(installerPath, 'utf8'));
+  const verification = await verifySignedRelease(directory, approval, process.env.FORGE_RELEASE_PUBLIC_KEY_HEX, installer);
   const report = JSON.parse(await readFile(path.join(directory, 'known-problems-report.json'), 'utf8'));
   const { ids } = await loadCatalog();
   const noStablePredecessor = await verifyFirstReleaseApplicability(report);

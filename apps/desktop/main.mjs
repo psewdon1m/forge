@@ -1,4 +1,4 @@
-import { app, BrowserWindow, WebContentsView, dialog, ipcMain, protocol, session, shell } from 'electron';
+import { app, BrowserWindow, Menu, Tray, WebContentsView, dialog, ipcMain, protocol, session, shell } from 'electron';
 import { X509Certificate, randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
@@ -8,6 +8,7 @@ import { AssetOpen, audioScheme, imageScheme, videoScheme } from './asset-open.m
 import { DocumentEdits, chooseDocumentEditor, documentEditorFormat } from './document-edits.mjs';
 import { GitBindings } from './git-bindings.mjs';
 import { RecentProjects } from './recent-projects.mjs';
+import { startUninstall } from './remove-installation.mjs';
 import { DesktopDiagnostics } from './diagnostics.mjs';
 import { Intelligent } from './intelligent.mjs';
 import { Transcription } from './transcription.mjs';
@@ -26,6 +27,8 @@ const fixtureMode = !app.isPackaged && process.env.FORGE_QUALIFICATION === '1';
 const offscreenBenchmark = fixtureMode && process.env.FORGE_CANVAS_FIXTURE === '500';
 const qualifierDirectory = fixtureMode ? process.env.FORGE_QUALIFICATION_DATA : undefined;
 const installation = app.isPackaged ? process.env.FORGE_INSTALLATION_ROOT : undefined;
+const icon = fileURLToPath(new URL('./anvil.png', import.meta.url));
+if (process.platform === 'win32') app.setAppUserModelId('Forge.Desktop');
 const startupChallenge = readStartupChallenge(installation, app.getVersion());
 const startupBarrier = startupChallenge ? Promise.withResolvers() : null;
 if (qualifierDirectory) app.setPath('userData', qualifierDirectory);
@@ -51,6 +54,7 @@ protocol.registerSchemesAsPrivileged([imageScheme, audioScheme, videoScheme].map
 })));
 
 let window;
+let tray;
 let site;
 let lastSitePopup;
 let lastSiteDownload;
@@ -129,6 +133,31 @@ bridge('check-updates', async () => {
   if (status.state !== 'error') return { ok: true, value: status };
   const correlationId = await diagnostics.recordUpdateMetadata('update-check', status);
   return { ok: true, value: { ...status, correlationId } };
+}, { needsCore: false });
+
+bridge('uninstall', async () => {
+  if (!installation) return projectError('UNINSTALL_UNAVAILABLE', 'Open Forge through its installed launcher.');
+  if (choosingDirectory || activeImport || activeAnalysis || restartingForUpdate) {
+    return projectError('PROJECT_BUSY', 'Wait for the current operation to finish.');
+  }
+  choosingDirectory = true;
+  let scheduled = false;
+  try {
+    const { response } = await dialog.showMessageBox(window, {
+      type: 'warning', title: 'Uninstall Forge', message: 'Remove Forge from this PC?',
+      detail: 'Forge will close and remove its program files, local settings, site data, logs and shortcuts. Your project folders and backups will stay where they are.',
+      buttons: ['Cancel', 'Uninstall Forge'], defaultId: 0, cancelId: 0, noLink: true,
+    });
+    if (response !== 1) return { ok: true, value: null };
+    await startUninstall(installation, process.execPath);
+    scheduled = true;
+    setImmediate(() => app.quit());
+    return { ok: true, value: null };
+  } catch {
+    return projectError('UNINSTALL_FAILED', 'Forge could not start the uninstaller.');
+  } finally {
+    if (!scheduled) choosingDirectory = false;
+  }
 }, { needsCore: false });
 
 async function restartForUpdate(id, backup, rollback = false) {
@@ -1488,6 +1517,7 @@ if (fixtureMode) {
 async function openWindow() {
   window = new BrowserWindow({
     title: 'Forge',
+    icon,
     width: 1440,
     height: 900,
     minWidth: 640,
@@ -1506,6 +1536,7 @@ async function openWindow() {
       additionalArguments: [
         '--forge-build-version=' + app.getVersion(),
         '--forge-build-channel=' + (app.isPackaged ? 'Stable' : 'Development'),
+        '--forge-build-managed=' + Boolean(installation),
       ],
     },
   });
@@ -1538,6 +1569,16 @@ app.whenReady().then(async () => {
   void sweepSiteDownloads(app.getPath('userData')).catch(() => {});
   await documentEdits.restore();
   if (!startupChallenge) await openWindow();
+  if (app.isPackaged && process.platform === 'win32') {
+    const open = () => { window?.restore(); window?.show(); window?.focus(); };
+    tray = new Tray(fileURLToPath(new URL('./anvil.ico', import.meta.url)));
+    tray.setToolTip('Forge');
+    tray.on('click', open);
+    tray.setContextMenu(Menu.buildFromTemplate([
+      { label: 'Open Forge', click: open },
+      { label: 'Exit Forge', click: () => app.quit() },
+    ]));
+  }
   void diagnostics.start();
 }).catch(() => {
   console.error('Forge startup failed.');
@@ -1549,6 +1590,7 @@ app.on('before-quit', event => {
   if (quitting) return;
   event.preventDefault();
   quitting = true;
+  tray?.destroy();
   if (activeImport && !activeImport.committing) void core?.cancelImport(activeImport.operationId).catch(() => {});
   if (activeAnalysis) void core?.cancelAnalysis(activeAnalysis.operationId).catch(() => {});
   core?.close();

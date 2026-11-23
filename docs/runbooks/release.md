@@ -41,7 +41,7 @@ Run `./scripts/pre-push.ps1 -Base <base-sha> -Head <outgoing-sha>` from a clean 
 3. The qualified tag builds the ZIP once. The unprivileged Windows job verifies those bytes with a disposable test key and launcher. The candidate launcher and ZIP keep the production public anchor. Save the successful candidate run ID and SHA-256. Confirm rights for the distributed files and retain the licence evidence.
 4. Draft `known-problems-report.json` from the candidate's unsigned manifest. Review every active ID from the pinned catalog. Record verifiable evidence for PASS. For N/A, record the verified profile, relevant components and reason. Set REL-06 to `UNKNOWN` with `deferred_until` set to `signed-artifact`. Set REL-12 to `UNKNOWN` with `deferred_until` set to `pre-publication` when a published Stable predecessor exists. For a first Stable release, use N/A with a public release-history reference. Every gate that accepts this exception checks that history for a published Forge Stable release. A candidate tag alone does not count as a published release. Set REL-09 and TRUST-03 to `UNKNOWN` with `deferred_until` set to `release-ready`. For each deferred row, give the reason and a public reference to the verification procedure. Keep only public evidence references in the report because it travels through a workflow input and into the release bundle.
 5. Dispatch **Record Forge candidate review** on the same qualified tag with the reviewed report and candidate run ID. Wait for a successful run with the `forge-known-problems-review` artifact. This read-only workflow validates the exact ZIP, provenance, smoke results and Part 12 pre-signing report.
-6. Dispatch **Prepare signed Forge release** on the same tag with the successful candidate and review run IDs. Its read-only gate checks the successful Verify workflow for the exact `main` commit. The protected signer redownloads the approved bytes, matches the key to the embedded anchor and creates the signed delivery. A separate read-only job verifies the detached signature, the approved bytes and the exact asset inventory with the public anchor. It records REL-06 as PASS in `signed-phase-report.json` and uploads it with `signed-verification.json` in `forge-signed-release-review`. Wait for the successful run and download `forge-staged-signed-delivery` from that run.
+6. Dispatch **Prepare signed Forge release** on the same tag with the successful candidate and review run IDs. Its read-only gate checks the successful Verify workflow for the exact `main` commit. The protected signer matches the key to the embedded anchor and signs the approved release manifest. A Windows job with no signing key assembles the offline Inno Setup wizard from the exact verified manifest, signature, native bootstrap and ZIP. It tests a selected path, shortcuts and uninstall. The independent verification job checks the approved bytes, detached signature, installer receipt and exact final asset inventory. It records REL-06 as PASS and uploads the reports in `forge-signed-release-review`. Download `forge-staged-signed-delivery` from that successful run.
 
 Run the report commands from the checked release revision, with the downloaded candidate in `candidate/`. The draft contains `UNKNOWN` for every entry so it can be opened and filled before dispatch.
 
@@ -107,7 +107,7 @@ $manifest = Get-Content -Raw -LiteralPath forge-release.json | ConvertFrom-Json
 $tag = $manifest.tag
 $version = $manifest.version
 $assets = @(
-  "Forge-Setup-$version.exe", "forge-$version-windows-x64.zip",
+  "Forge-Installer-$version.exe", "Forge-Setup-$version.exe", "forge-$version-windows-x64.zip",
   'forge-release.json', 'forge-release.sig', 'forge-sbom.cdx.json',
   'forge-build-provenance.json', 'forge-package-smoke.json',
   'known-problems-report.json', 'release-notes.md', 'SHA256SUMS'
@@ -146,14 +146,15 @@ foreach ($asset in $assets) {
     throw "The downloaded asset differs from the signed delivery: $asset"
   }
 }
-$setup = $assets[0]
 gh release verify $tag --repo $repo
 if ($LASTEXITCODE -ne 0) { throw 'Release attestation verification failed.' }
-gh release verify-asset $tag $setup --repo $repo
-if ($LASTEXITCODE -ne 0) { throw 'The attestation does not authenticate this setup executable.' }
+foreach ($executable in @("Forge-Installer-$version.exe", "Forge-Setup-$version.exe")) {
+  gh release verify-asset $tag $executable --repo $repo
+  if ($LASTEXITCODE -ne 0) { throw "The attestation does not authenticate $executable." }
+}
 ```
 
-Install using [the first-install command](#first-installation-and-stopping-a-release). Record the exact Windows build, runtime observations, and the configured DOCX and PDF editors with their open, edit and import results. Check that this installation starts and opens a project offline. Use **Check for updates** and record that the public Stable channel skips this prerelease.
+Run the verified installer wizard. Choose a local NTFS folder and verify the resulting Start menu and selected desktop shortcuts. Record the exact Windows build, runtime observations, and the configured DOCX and PDF editors with their open, edit and import results. Check that this installation starts and opens a project offline. Use **Check for updates** and record that the public Stable channel skips this prerelease.
 
 On the same supported Windows host, use isolated standard-user profiles to qualify the F07 lifecycle on the exact checked-out revision with the isolated test-signed deliveries. Use the candidate-target scenario for a successful Settings update from the test predecessor to the target version using the same local package as first install, then restore the original project from its backup and check manual rollback. Test automatic rollback and interruption using the matching disposable successor fixtures. To use the cross-build toolchain, run `./scripts/build-core-windows-dev.ps1` in place of the native Core build and copy, and add `--docker` to the Node commands.
 
@@ -170,7 +171,7 @@ node tests/release-windows.mjs --committed --updates --manual-rollback --rollbac
 
 Require exit code 0 for each run. Retain each `observations.json` and relevant logs under `.local/qualification/release-*/`. Label the production-signed delivery results and isolated test-signed lifecycle results in the evidence. For later releases, retain the exact compatibility evidence recorded before publication. Retain the original ZIP for recovery and record the tested retention window separately.
 
-Create `windows-qualification.json` only after those checks pass. Set `schemaVersion` to `1`, `profile` to `standard-user` and `platform` to `windows-x64`. Set `windowsBuild` to the integer build reported by Windows and `releaseId` to the numeric public GitHub release ID. Copy `tag`, `revision`, `packageSha256` and `setupSha256` from `signed-verification.json`. Give each `checks` entry an object with `status` set to `PASS` and `evidence` set to a public HTTPS reference without credentials or a query string.
+Create `windows-qualification.json` after those checks pass. Set `schemaVersion` to `1`, `profile` to `standard-user` and `platform` to `windows-x64`. Set `windowsBuild` to the integer build reported by Windows and `releaseId` to the numeric public GitHub release ID. Copy `tag`, `revision`, `packageSha256`, `setupSha256` and `installerSha256` from `signed-verification.json`. Give each `checks` entry an object with `status` set to `PASS` and `evidence` set to a public HTTPS reference without credentials or a query string.
 
 | `checks` key | Evidence to retain |
 | --- | --- |
@@ -202,7 +203,11 @@ Save `forge-stable-qualification` outside Actions before its 90-day retention ex
 
 ## First installation and stopping a release
 
-From a directory containing the verified versioned delivery, run the exact versioned setup executable from its trusted distribution point.
+Double-click the verified `Forge-Installer-<version>.exe`. Setup installs for the current user. Choose a folder reserved for Forge on a writable NTFS drive. Its `Installation` subfolder holds the program and update slots. The adjacent `Profile` subfolder holds your application settings. Windows Installed Apps can uninstall the program and its shortcuts while retaining the profile. Store projects outside the managed `Installation` subfolder. Close Forge before reinstalling the same release in its existing folder. Setup restores the signed runtime files and retains the profile and rollback state. Use **Settings → Updates** to upgrade an existing installation.
+
+Choose **Settings → Uninstall Forge** to remove program files, settings, site data, logs and shell registration. Forge closes before cleanup. Project folders and supported project backups remain at their original paths.
+
+For scripted first installation, use the versioned bootstrap from the same verified delivery.
 
 ```powershell
 $version = (Get-Content -Raw -LiteralPath forge-release.json | ConvertFrom-Json).version
