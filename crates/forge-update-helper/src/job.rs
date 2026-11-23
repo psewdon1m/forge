@@ -409,18 +409,7 @@ fn stage_selected(
         return Err("The active version changed before the update started".into());
     }
     let last = read(root)?;
-    if last.as_ref().is_some_and(|last| {
-        matches!(
-            last.phase,
-            Phase::Staged
-                | Phase::Starting
-                | Phase::Committing
-                | Phase::RollingBack
-                | Phase::RecoveryRequired
-        ) || last.phase.manual_pending()
-    }) {
-        return Err("Finish the existing update before preparing another".into());
-    }
+    ensure_can_prepare(last.as_ref())?;
     let (signed, local_file) = if let Some(LocalBundle {
         manifest,
         signature,
@@ -462,6 +451,41 @@ fn stage_selected(
             }
         }
     };
+    let job = prepare_job(
+        root,
+        previous,
+        &signed,
+        local_file,
+        &request.backup_path,
+        last,
+    )?;
+    Ok(StageReply::Job(job.summary(false, false)))
+}
+
+fn ensure_can_prepare(last: Option<&Job>) -> Result<()> {
+    if last.is_some_and(|last| {
+        matches!(
+            last.phase,
+            Phase::Staged
+                | Phase::Starting
+                | Phase::Committing
+                | Phase::RollingBack
+                | Phase::RecoveryRequired
+        ) || last.phase.manual_pending()
+    }) {
+        return Err("Finish the existing update before preparing another".into());
+    }
+    Ok(())
+}
+
+fn prepare_job(
+    root: &Path,
+    previous: Active,
+    signed: &VerifiedManifest,
+    local_file: Option<File>,
+    backup: &Path,
+    last: Option<Job>,
+) -> Result<Job> {
     if let Some(last) = last {
         let _ = fs::remove_file(archive_path(root, last.id));
     }
@@ -469,8 +493,8 @@ fn stage_selected(
         schema_version: 1,
         id: Uuid::new_v4(),
         previous,
-        target_version: request.version,
-        target_sha256: request.package_sha256,
+        target_version: signed.data().version.clone(),
+        target_sha256: signed.data().artifact.sha256.clone(),
         phase: Phase::Preparing,
         backup: None,
         candidate: None,
@@ -481,14 +505,7 @@ fn stage_selected(
     };
     job.write(root)?;
     let package = archive_path(root, job.id);
-    let result = prepare(
-        root,
-        &request.backup_path,
-        &package,
-        &signed,
-        local_file,
-        &mut job,
-    );
+    let result = prepare(root, backup, &package, signed, local_file, &mut job);
     let _ = fs::remove_file(package);
     if let Err(issue) = result {
         job.phase = Phase::Failed;
@@ -496,7 +513,72 @@ fn stage_selected(
         job.issue = Some(issue);
         job.write(root)?;
     }
-    Ok(StageReply::Job(job.summary(false, false)))
+    Ok(job)
+}
+
+// Setup owns the installation lock and requires Forge to be closed. The same job and
+// backup format lets Settings undo an upgrade that was installed without the running UI.
+pub(crate) fn install_existing(
+    root: &Path,
+    previous: Active,
+    signed: &VerifiedManifest,
+    input: File,
+    launcher: &Path,
+) -> Result<Active> {
+    discovery::validate_staging_manifest(
+        signed,
+        &previous,
+        &signed.data().version,
+        &signed.data().artifact.sha256,
+    )
+    .map_err(|_| "This upgrade is not compatible with the installed Forge release")?;
+    let last = read(root)?;
+    ensure_can_prepare(last.as_ref())?;
+    crate::uninstall::check(root)?;
+    let backups = root
+        .parent()
+        .ok_or("Invalid installation directory")?
+        .join("Backups");
+    match fs::create_dir(&backups) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => crate::directory(&backups)?,
+        Err(error) => return Err(error.into()),
+    }
+    let backup = backups.join(format!(
+        "Forge-before-{}-{}.zip",
+        previous.version,
+        Uuid::new_v4()
+    ));
+    install::refresh_launcher(root, launcher)?;
+    let mut job = prepare_job(root, previous, signed, Some(input), &backup, last)?;
+    if let Some(issue) = job.issue {
+        return Err(issue.message().into());
+    }
+    let receipt = job
+        .backup
+        .as_ref()
+        .ok_or("The staged update has no backup receipt")?;
+    receipt.check_install_age()?;
+    let _backup = open_update_backup(&backup, receipt)?;
+    let mut settings = profile(root)?;
+    let write_guard = settings.lock_revision(receipt.info.settings_revision())?;
+    job.phase = Phase::Starting;
+    job.write(root)?;
+    let result = start_candidate(root, &mut job);
+    drop(write_guard);
+    // The probe has verified the signed slot and a synthetic project. Close its hidden
+    // window; launching Forge after Setup is an explicit choice on the final page.
+    if result.is_err() {
+        let issue = if job.phase == Phase::Starting {
+            Issue::CandidateHealth
+        } else {
+            Issue::Storage
+        };
+        roll_back(root, &mut job, issue, false)?;
+        return Err(issue.message().into());
+    }
+    drop(result);
+    install::active_record(root)
 }
 
 pub fn activate(root: &Path, request: ActivateRequest) -> Result<()> {
@@ -546,7 +628,7 @@ pub fn activate(root: &Path, request: ActivateRequest) -> Result<()> {
         } else {
             Issue::Storage
         };
-        roll_back(root, &mut job, issue)?;
+        roll_back(root, &mut job, issue, true)?;
     }
     Ok(())
 }
@@ -580,7 +662,7 @@ fn start_candidate(root: &Path, job: &mut Job) -> Result<startup::Healthy> {
     Ok(healthy)
 }
 
-fn roll_back(root: &Path, job: &mut Job, issue: Issue) -> Result<()> {
+fn roll_back(root: &Path, job: &mut Job, issue: Issue, show_window: bool) -> Result<()> {
     job.phase = Phase::RollingBack;
     job.issue = Some(issue);
     job.write(root)?;
@@ -596,7 +678,11 @@ fn roll_back(root: &Path, job: &mut Job, issue: Issue) -> Result<()> {
         let healthy = startup::check(root, &path, job.id, &job.previous.version)?;
         job.phase = Phase::RolledBack;
         job.write(root)?;
-        healthy.release()
+        if show_window {
+            healthy.release()
+        } else {
+            Ok(())
+        }
     })();
     if result.is_err() {
         job.phase = Phase::RecoveryRequired;
@@ -622,7 +708,7 @@ pub fn launch(root: &Path) -> Result<()> {
             Phase::Starting | Phase::Committing | Phase::RollingBack
         ) {
             let issue = job.issue.unwrap_or(Issue::ActivationInterrupted);
-            return roll_back(root, &mut job, issue);
+            return roll_back(root, &mut job, issue, true);
         }
         if phase == Phase::RecoveryRequired {
             return Err(
@@ -655,6 +741,7 @@ fn prepare(
     let settings_revision = settings.read().map_err(|_| Issue::Backup)?.revision;
     let scope = UpdateBackupScope {
         job_id: job.id,
+        source_version: job.previous.version.clone(),
         target_version: job.target_version.clone(),
         target_sha256: job.target_sha256.clone(),
         settings_revision,

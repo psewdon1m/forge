@@ -37,6 +37,7 @@ impl Drop for Fixture {
 
 fn scope(settings_revision: i64, projects: &[(Uuid, i64)]) -> UpdateBackupScope {
     UpdateBackupScope {
+        source_version: env!("CARGO_PKG_VERSION").into(),
         job_id: Uuid::new_v4(),
         target_version: "0.0.2-qualification".into(),
         target_sha256: "ab".repeat(32),

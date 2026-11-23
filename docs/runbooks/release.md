@@ -203,11 +203,11 @@ Save `forge-stable-qualification` outside Actions before its 90-day retention ex
 
 ## First installation and stopping a release
 
-Double-click the verified `Forge-Installer-<version>.exe`. Setup installs for the current user. Choose a folder reserved for Forge on a writable NTFS drive. Its `Installation` subfolder holds the program and update slots. The adjacent `Profile` subfolder holds your application settings. Windows Installed Apps can uninstall the program and its shortcuts while retaining the profile. Store projects outside the managed `Installation` subfolder. Close Forge before reinstalling the same release in its existing folder. Setup restores the signed runtime files and retains the profile and rollback state. Use **Settings → Updates** to upgrade an existing installation.
+Double-click the verified `Forge-Installer-<version>.exe`. Setup installs for the current user. Choose a folder reserved for Forge on a writable NTFS drive. Its `Installation` subfolder holds the program and update slots. The adjacent `Profile` subfolder holds your application settings. Windows Installed Apps can uninstall the program and its shortcuts while retaining the profile. Store projects outside the managed `Installation` subfolder.
+
+To upgrade or reinstall in place, close Forge and use the existing installation folder. Setup verifies the signing key and the version. For an upgrade it saves the rollback ZIP in `Backups` under the selected folder, verifies the candidate startup and activates the new slot. Select that ZIP in **Settings → Updates** to roll back. Reinstalling the same release restores the runtime files and retains the active slot, profile and rollback state.
 
 Choose **Settings → Uninstall Forge** to remove program files, settings, site data, logs and shell registration. Forge closes before cleanup. Project folders and supported project backups remain at their original paths.
-
-For local test-signed delivery, run `node scripts/build-windows-installer.mjs --local-preview DELIVERY OUTPUT`. The resulting `Forge-Installer-<version>-local.exe` defaults to a versioned per-user folder and registers its own shortcuts and Installed Apps entry.
 
 For scripted first installation, use the versioned bootstrap from the same verified delivery.
 

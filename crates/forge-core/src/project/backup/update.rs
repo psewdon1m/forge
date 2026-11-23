@@ -20,6 +20,7 @@ const LIMITS: ArchiveLimits = ArchiveLimits {
 /// The caller resolves the affected IDs and revisions from the candidate's migration contract.
 pub struct UpdateBackupScope {
     pub job_id: Uuid,
+    pub source_version: String,
     pub target_version: String,
     pub target_sha256: String,
     pub settings_revision: i64,
@@ -164,7 +165,7 @@ pub fn prepare_update_backup<'a>(
     let manifest = ArchiveManifest {
         format: FORMAT.into(),
         schema_version: VERSION,
-        source_version: env!("CARGO_PKG_VERSION").into(),
+        source_version: scope.source_version,
         source_project_id: None,
         project_schema: Some(SCHEMA),
         scope: "update".into(),

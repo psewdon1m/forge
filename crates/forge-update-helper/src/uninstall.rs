@@ -91,7 +91,9 @@ pub(crate) fn prepare_full_removal(product: &Path, root: &Path) -> Result<()> {
         );
     }
     if running(root)? {
-        return Err("Close Forge and its update process before uninstalling".into());
+        return Err(
+            "Close Forge and wait for its update process to finish before continuing.".into(),
+        );
     }
     // Resolve both trees completely before changing the installation or its shell registration.
     for directory in [root.to_path_buf(), product.join("Profile")] {
@@ -283,7 +285,9 @@ pub(crate) fn check(root: &Path) -> Result<()> {
         }
     }
     if running(root)? {
-        return Err("Close Forge and its update process before uninstalling".into());
+        return Err(
+            "Close Forge and wait for its update process to finish before continuing.".into(),
+        );
     }
     Ok(())
 }

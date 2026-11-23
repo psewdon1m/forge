@@ -5,17 +5,15 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { bootstrapName, canonical, fileDigest, hasWindowsInstaller, installerName, packageName, stableVersion } from './release-format.mjs';
 import { verifySignedRelease } from './verify-signed-release.mjs';
 
-export async function buildWindowsInstaller(delivery, output, version, { localPreview = false } = {}) {
+export async function buildWindowsInstaller(delivery, output, version) {
   if (process.platform !== 'win32' || !stableVersion.test(version)) throw new Error('Use Windows and a numeric Forge version');
   const source = fileURLToPath(new URL('./windows/forge.iss', import.meta.url));
   const compiler = process.env.FORGE_ISCC ?? path.join(process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Inno Setup 6', 'ISCC.exe');
   await mkdir(output, { recursive: true });
-  const options = ['/Qp', '/O' + path.resolve(output), '/DDelivery=' + path.resolve(delivery), '/DVersion=' + version];
-  if (localPreview) options.push('/DLocalPreview');
-  execFileSync(compiler, [...options, source], {
+  execFileSync(compiler, ['/Qp', '/O' + path.resolve(output), '/DDelivery=' + path.resolve(delivery), '/DVersion=' + version, source], {
     stdio: 'inherit', windowsHide: true, timeout: 180_000,
   });
-  return path.join(output, localPreview ? 'Forge-Installer-' + version + '-local.exe' : installerName(version));
+  return path.join(output, installerName(version));
 }
 
 async function assemble(directory, approvalFile, receiptFile) {
@@ -42,13 +40,8 @@ async function assemble(directory, approvalFile, receiptFile) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const [directory, approval, receipt] = process.argv.slice(2);
-  if (directory === '--local-preview' && approval && receipt && process.argv.length === 5) {
-    const { version } = JSON.parse(await readFile(path.join(approval, 'forge-release.json'), 'utf8'));
-    console.log(await buildWindowsInstaller(approval, receipt, version, { localPreview: true }));
-  } else {
-    if (!receipt || process.argv.length !== 5) {
-      throw new Error('Use build-windows-installer.mjs SIGNED_DIRECTORY APPROVAL_JSON INSTALLER_RECEIPT or --local-preview DELIVERY OUTPUT');
-    }
-    await assemble(directory, approval, receipt);
+  if (!receipt || process.argv.length !== 5) {
+    throw new Error('Use build-windows-installer.mjs SIGNED_DIRECTORY APPROVAL_JSON INSTALLER_RECEIPT');
   }
+  await assemble(directory, approval, receipt);
 }

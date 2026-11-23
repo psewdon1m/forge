@@ -478,7 +478,7 @@ dependencies = [
 
 [[package]]
 name = "forge-core"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "cap-fs-ext",
  "cap-std",
@@ -502,7 +502,7 @@ dependencies = [
 
 [[package]]
 name = "forge-update-helper"
-version = "0.0.5"
+version = "0.0.6"
 dependencies = [
  "ed25519-dalek",
  "forge-core",

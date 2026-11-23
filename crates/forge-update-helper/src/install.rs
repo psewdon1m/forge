@@ -308,13 +308,20 @@ fn install(
     match fs::symlink_metadata(root.join(ACTIVE)) {
         Ok(_) if wizard => {
             let active = active_record(root)?;
-            if active.version == manifest.data().version
-                && active.package_sha256 == manifest.data().artifact.sha256
-            {
-                crate::reinstall::replace(root, &active, input, manifest)?;
-                return Ok(active);
+            match manifest.compare_installed(&active.version, &active.package_sha256)? {
+                std::cmp::Ordering::Equal => {
+                    crate::reinstall::replace(root, &active, input, manifest)?;
+                    refresh_launcher(root, launcher)?;
+                    return Ok(active);
+                }
+                std::cmp::Ordering::Greater => {
+                    let (previous, _, _) = verified_active(root).map_err(|error| {
+                        format!("This installer could not verify the existing release with its signing key. Use a build signed for this installation. {error}")
+                    })?;
+                    return crate::job::install_existing(root, previous, manifest, input, launcher);
+                }
+                std::cmp::Ordering::Less => unreachable!("compare_installed rejects downgrades"),
             }
-            return Err("Forge is already installed in this folder. Upgrade through Settings → Updates, or select another folder.".into());
         }
         Ok(_) => return Err("Forge is already installed. Use Settings → Updates.".into()),
         Err(error) if error.kind() == io::ErrorKind::NotFound => {}
@@ -329,6 +336,20 @@ fn install(
     published?;
     let _ = fs::remove_file(root.join(FIRST_INSTALL));
     Ok(record)
+}
+
+pub(crate) fn refresh_launcher(root: &Path, source: &Path) -> Result<()> {
+    let bytes = read_bounded(source, 64 * 1024 * 1024)?;
+    match read_bounded(&root.join(LAUNCHER), 64 * 1024 * 1024) {
+        Ok(current) if current == bytes => return Ok(()),
+        Ok(_) => {}
+        Err(error)
+            if error
+                .downcast_ref::<io::Error>()
+                .is_some_and(|error| error.kind() == io::ErrorKind::NotFound) => {}
+        Err(error) => return Err(error),
+    }
+    replace_record(root, LAUNCHER, &bytes)
 }
 
 pub fn check_uninstall(root: &Path) -> Result<()> {

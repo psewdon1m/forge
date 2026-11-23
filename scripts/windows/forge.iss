@@ -9,27 +9,19 @@
 #define Package "forge-" + Version + "-windows-x64.zip"
 #define Launcher "{app}\Installation\Forge Launcher.exe"
 
-#ifdef LocalPreview
-  #define Name "Forge Local"
-  #define SetupId "Forge.Local." + Version
-  #define UninstallKey SetupId + "_is1"
-  #define DestinationFolder "Forge " + Version + " Local"
-  #define OutputName "Forge-Installer-" + Version + "-local"
-#else
-  #define Name "Forge"
-  #define SetupId "{{738940DB-1491-459D-92DF-8571C6C3460C}"
-  #define UninstallKey "{738940DB-1491-459D-92DF-8571C6C3460C}_is1"
-  #define DestinationFolder "Forge"
-  #define OutputName "Forge-Installer-" + Version
-#endif
-
 [Setup]
-AppId={#SetupId}
-AppName={#Name}
+AppId={{738940DB-1491-459D-92DF-8571C6C3460C}
+AppName=Forge
 AppVersion={#Version}
 AppPublisher=Forge
-DefaultDirName={localappdata}\{#DestinationFolder}
-DefaultGroupName={#Name}
+VersionInfoVersion={#Version}.0
+VersionInfoTextVersion={#Version}
+VersionInfoProductVersion={#Version}.0
+VersionInfoProductTextVersion={#Version}
+VersionInfoDescription=Forge Setup
+VersionInfoProductName=Forge
+DefaultDirName={localappdata}\Forge
+DefaultGroupName=Forge
 DisableDirPage=no
 DisableProgramGroupPage=no
 PrivilegesRequired=lowest
@@ -40,7 +32,7 @@ AllowNetworkDrive=no
 AllowUNCPath=no
 AllowRootDirectory=no
 WizardStyle=modern
-OutputBaseFilename={#OutputName}
+OutputBaseFilename=Forge-Installer-{#Version}
 SetupIconFile=..\..\apps\desktop\anvil.ico
 Compression=none
 SetupLogging=yes
@@ -58,11 +50,11 @@ Source: "{#Delivery}\forge-release.sig"; Flags: dontcopy
 Source: "{#Delivery}\{#Package}"; Flags: dontcopy
 
 [Icons]
-Name: "{group}\{#Name}"; Filename: "{#Launcher}"; WorkingDir: "{app}\Installation"; AppUserModelID: "Forge.Desktop"
-Name: "{userdesktop}\{#Name}"; Filename: "{#Launcher}"; WorkingDir: "{app}\Installation"; Tasks: desktopicon; AppUserModelID: "Forge.Desktop"
+Name: "{group}\Forge"; Filename: "{#Launcher}"; WorkingDir: "{app}\Installation"; AppUserModelID: "Forge.Desktop"
+Name: "{userdesktop}\Forge"; Filename: "{#Launcher}"; WorkingDir: "{app}\Installation"; Tasks: desktopicon; AppUserModelID: "Forge.Desktop"
 
 [Run]
-Filename: "{#Launcher}"; WorkingDir: "{app}\Installation"; Description: "{cm:LaunchProgram,{#Name}}"; Flags: nowait postinstall unchecked skipifsilent
+Filename: "{#Launcher}"; WorkingDir: "{app}\Installation"; Description: "{cm:LaunchProgram,Forge}"; Flags: nowait postinstall unchecked skipifsilent
 
 [UninstallDelete]
 Type: dirifempty; Name: "{app}"
@@ -76,8 +68,7 @@ end;
 procedure CurPageChanged(CurPageID: Integer);
 begin
   if (CurPageID = wpReady) and FileExists(AddBackslash(WizardDirValue) + 'Installation\active.json') then begin
-    WizardForm.ReadyLabel.Caption := 'Setup will reinstall Forge in the selected folder.';
-    WizardForm.NextButton.Caption := '&Reinstall';
+    WizardForm.ReadyLabel.Caption := 'Setup will update or reinstall Forge in the selected folder. Close Forge before continuing.';
   end;
 end;
 
@@ -89,7 +80,7 @@ var
 begin
   Result := '';
   Destination := RemoveBackslashUnlessRoot(WizardDirValue);
-  if RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#UninstallKey}',
+  if RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{738940DB-1491-459D-92DF-8571C6C3460C}_is1',
     'InstallLocation', PreviousPath) and
     (CompareText(RemoveBackslashUnlessRoot(PreviousPath), Destination) <> 0) then begin
     Result := 'Forge is already registered in ' + PreviousPath + '. Select that folder to reinstall.';

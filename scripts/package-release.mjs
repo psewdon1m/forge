@@ -50,14 +50,14 @@ async function writeJson(file, value) {
   await writeFile(file, canonical(value), { flag: 'wx' });
 }
 
-async function applyWindowsIcon(executables) {
-  const version = '2.0.0';
+async function applyWindowsMetadata(executables) {
+  const editorVersion = '2.0.0';
   const sha256 = '3e7801db1a5edbec91b49a24a094aad776cb4515488ea5a4ca2289c400eade2a';
-  const editor = path.join(binaries, 'rcedit-x64-' + version + '.exe');
+  const editor = path.join(binaries, 'rcedit-x64-' + editorVersion + '.exe');
   if (!await stat(editor).catch(error => {
     if (error.code !== 'ENOENT') throw error;
   })) {
-    const response = await fetch('https://github.com/electron/rcedit/releases/download/v' + version + '/rcedit-x64.exe', {
+    const response = await fetch('https://github.com/electron/rcedit/releases/download/v' + editorVersion + '/rcedit-x64.exe', {
       signal: AbortSignal.timeout(45_000),
     });
     if (!response.ok) throw new Error('Could not download the Windows resource editor');
@@ -67,7 +67,10 @@ async function applyWindowsIcon(executables) {
   }
   if (await fileDigest(editor) !== sha256) throw new Error('Installed Windows resource editor digest mismatch');
   for (const executable of executables) {
-    execFileSync(editor, [executable, '--set-icon', icon], { windowsHide: true, stdio: 'inherit' });
+    execFileSync(editor, [executable, '--set-icon', icon, '--set-file-version', version,
+      '--set-product-version', version, '--set-version-string', 'ProductName', 'Forge'], {
+      windowsHide: true, stdio: 'inherit',
+    });
   }
 }
 
@@ -137,7 +140,7 @@ try {
   });
   await writeJson(path.join(staging, 'forge-package.json'), { product: 'forge', platform: 'windows-x64', version, commitSha, electronVersion });
   await cp(path.join(binaries, 'forge-launcher.exe'), path.join(output, bootstrap));
-  await applyWindowsIcon([path.join(staging, 'Forge.exe'), path.join(output, bootstrap)]);
+  await applyWindowsMetadata([path.join(staging, 'Forge.exe'), path.join(output, bootstrap)]);
   execFileSync(helper, ['pack', staging, path.join(output, bundle)], { windowsHide: true, stdio: 'inherit' });
   const releaseNotes = await readFile(path.join(root, 'docs', 'releases', version + '.md'), 'utf8');
   await writeFile(path.join(output, 'release-notes.md'), releaseNotes.replaceAll('\r\n', '\n'), { flag: 'wx' });
