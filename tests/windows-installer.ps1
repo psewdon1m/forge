@@ -9,8 +9,9 @@ $ErrorActionPreference = 'Stop'
 $installerPath = (Resolve-Path -LiteralPath $Installer).ProviderPath
 $metadata = (Get-Item -LiteralPath $installerPath).VersionInfo
 $fileVersion = @($metadata.FileMajorPart, $metadata.FileMinorPart, $metadata.FileBuildPart, $metadata.FilePrivatePart) -join '.'
-if ($fileVersion -ne "$Version.0" -or $metadata.ProductVersion -ne $Version) {
-    throw "Unexpected installer file version $fileVersion and product version $($metadata.ProductVersion)."
+$productVersion = $metadata.ProductVersion.TrimEnd()
+if ($fileVersion -ne "$Version.0" -or $productVersion -ne $Version) {
+    throw "Unexpected installer file version $fileVersion and product version $productVersion."
 }
 $appId = '{738940DB-1491-459D-92DF-8571C6C3460C}_is1'
 $uninstall = "HKCU:/Software/Microsoft/Windows/CurrentVersion/Uninstall/$appId"
@@ -130,7 +131,7 @@ Remove-Item -LiteralPath $worker
     outcome = 'PASS'
     version = $Version
     fileVersion = $fileVersion
-    productVersion = $metadata.ProductVersion
+    productVersion = $productVersion
     packageSha256 = $PackageSha256
     customDestination = !$PreviousDelivery
     upgradedInPlaceAndRetainedRollback = [bool]$PreviousDelivery
