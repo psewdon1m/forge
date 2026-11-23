@@ -207,6 +207,8 @@ Double-click the verified `Forge-Installer-<version>.exe`. Setup installs for th
 
 Choose **Settings → Uninstall Forge** to remove program files, settings, site data, logs and shell registration. Forge closes before cleanup. Project folders and supported project backups remain at their original paths.
 
+For local test-signed delivery, run `node scripts/build-windows-installer.mjs --local-preview DELIVERY OUTPUT`. The resulting `Forge-Installer-<version>-local.exe` defaults to a versioned per-user folder and registers its own shortcuts and Installed Apps entry.
+
 For scripted first installation, use the versioned bootstrap from the same verified delivery.
 
 ```powershell

@@ -1,33 +1,47 @@
 param(
     [Parameter(Mandatory)][string]$Installer,
     [Parameter(Mandatory)][ValidatePattern('^[0-9]+\.[0-9]+\.[0-9]+$')][string]$Version,
-    [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{64}$')][string]$PackageSha256
+    [Parameter(Mandatory)][ValidatePattern('^[0-9a-f]{64}$')][string]$PackageSha256,
+    [switch]$LocalPreview
 )
 
 $ErrorActionPreference = 'Stop'
 $installerPath = (Resolve-Path -LiteralPath $Installer).ProviderPath
-$appId = '{738940DB-1491-459D-92DF-8571C6C3460C}_is1'
+$appId = if ($LocalPreview) { "Forge.Local.${Version}_is1" } else { '{738940DB-1491-459D-92DF-8571C6C3460C}_is1' }
+$name = if ($LocalPreview) { 'Forge Local' } else { 'Forge' }
 $uninstall = "HKCU:/Software/Microsoft/Windows/CurrentVersion/Uninstall/$appId"
-$desktop = Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) 'Forge.lnk'
+$desktop = Join-Path ([Environment]::GetFolderPath('DesktopDirectory')) "$name.lnk"
 if ((Test-Path -LiteralPath $uninstall) -or (Test-Path -LiteralPath $desktop)) {
     throw 'Use an isolated Windows profile with no existing Forge wizard registration or desktop shortcut.'
 }
 
 $fixtureId = [Guid]::NewGuid().ToString('N').Substring(0, 8)
 $fixture = Join-Path $env:TEMP "Forge-Wizard-$fixtureId"
-$destination = Join-Path $fixture 'Custom Forge Folder'
+$destination = if ($LocalPreview) {
+    Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) "Forge $Version Local"
+} else {
+    Join-Path $fixture 'Custom Forge Folder'
+}
 $installation = Join-Path $destination 'Installation'
 $launcher = Join-Path $installation 'Forge Launcher.exe'
-$group = "Forge Qualification $fixtureId"
-$menu = Join-Path ([Environment]::GetFolderPath('Programs')) "$group/Forge.lnk"
+$group = if ($LocalPreview) { $name } else { "Forge Qualification $fixtureId" }
+$menu = Join-Path ([Environment]::GetFolderPath('Programs')) "$group/$name.lnk"
 $log = Join-Path $fixture 'install.log'
 New-Item -ItemType Directory -Path $fixture | Out-Null
 $shell = New-Object -ComObject WScript.Shell
+if ($LocalPreview) {
+    $stable = Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'Forge/Installation/active.json'
+    if (Test-Path -LiteralPath $stable) { throw 'Use an isolated Windows profile for the Stable installation fixture.' }
+    New-Item -ItemType Directory -Path (Split-Path -Parent $stable) -Force | Out-Null
+    [IO.File]::WriteAllText($stable, '{"schemaVersion":1,"version":"0.0.4","packageSha256":"545e2f01c9c5ae8291ff86038d6735cdc5097b68a30d726c367facccddc6d896","slot":"0c47c730-6ae6-4f1f-a835-bd38c06453ea"}')
+    $stableSha256 = (Get-FileHash -LiteralPath $stable -Algorithm SHA256).Hash
+}
 
 function Invoke-Wizard([string]$Tasks) {
-    $arguments = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART',
-        ('/DIR="' + $destination + '"'), ('/GROUP="' + $group + '"'), ('/TASKS="' + $Tasks + '"'),
-        ('/LOG="' + $log + '"'))
+    $arguments = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', ('/TASKS="' + $Tasks + '"'), ('/LOG="' + $log + '"'))
+    if (!$LocalPreview) {
+        $arguments += @(('/DIR="' + $destination + '"'), ('/GROUP="' + $group + '"'))
+    }
     $result = Start-Process -FilePath $installerPath -ArgumentList $arguments -Wait -PassThru -WindowStyle Hidden
     if ($result.ExitCode -ne 0) {
         if (Test-Path -LiteralPath $log) { Get-Content -LiteralPath $log -Tail 30 }
@@ -87,11 +101,16 @@ if ($LASTEXITCODE -ne 0 -or (Test-Path -LiteralPath $launcher) -or (Test-Path -L
 }
 Remove-Item -LiteralPath $worker
 
+if ($LocalPreview -and (Get-FileHash -LiteralPath $stable -Algorithm SHA256).Hash -ne $stableSha256) {
+    throw 'The local installer changed the Stable installation fixture.'
+}
+
 [ordered]@{
     outcome = 'PASS'
     version = $Version
     packageSha256 = $PackageSha256
-    customDestination = $true
+    customDestination = !$LocalPreview
+    localPreviewDefaultAndStableIsolation = [bool]$LocalPreview
     startMenuShortcut = $true
     uncheckedDesktopShortcut = $true
     selectedDesktopShortcut = $true
