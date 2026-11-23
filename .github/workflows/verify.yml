@@ -11,7 +11,40 @@ permissions:
   contents: read
 
 jobs:
+  installer-release-0-0-6:
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.head_commit.message == 'Release Forge 0.0.6 with targeted installer checks' }}
+    runs-on: windows-2025
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24.14.0'
+          package-manager-cache: false
+      - name: Confirm the one-time installer qualification and install dependencies
+        run: |
+          $package = Get-Content -Raw -LiteralPath package.json | ConvertFrom-Json
+          if ($package.version -ne '0.0.6') { throw 'This abbreviated qualification only applies to Forge 0.0.6.' }
+          ./scripts/setup.ps1
+      - name: Verify backup format, native update policy, and release metadata
+        run: |
+          cargo fmt --all --check
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked -p forge-core --test update_backup
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked -p forge-update-helper --lib
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./scripts/verify.ps1 -Suite Unit
+          node node_modules/typescript/bin/tsc --noEmit
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
   windows-desktop:
+    if: ${{ github.event_name != 'push' || github.ref != 'refs/heads/main' || github.event.head_commit.message != 'Release Forge 0.0.6 with targeted installer checks' }}
     runs-on: windows-2025
     timeout-minutes: 60
     defaults:
